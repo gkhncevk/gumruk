@@ -38,7 +38,7 @@ Bu ayrım bilinçli: kurumsal backend (Node.js/.NET) ile AI servisini (Python) a
 
 Bu proje boyunca alınan her mimari karar bilinçli bir trade-off'un sonucu — bunları gizlemek yerine burada açıkça belgeliyorum, çünkü "neden bunu seçtim" sorusuna cevap verebilmek "nasıl yaptım"dan daha değerli:
 
-- **TF-IDF (karakter n-gram) vs. semantik embedding:** `sentence-transformers` denendi, ama bağımlılığı olan `torch` paketinin indirmesi tekrar tekrar zaman aşımına uğradı — hem geliştirme ortamında hem tipik bir kullanıcı makinesinde riskli bir bağımlılık. Bunun yerine karakter n-gram tabanlı TF-IDF (`analyzer="char_wb"`) kullanıldı; Türkçe'nin eklemeli yapısını (bant/bandı/banda) kelime bazlı yöntemden çok daha iyi yakalıyor ve hiçbir ağır bağımlılık gerektirmiyor. Ölçülebilir sonuç: yeterli emsali olan pozisyonlarda %88.2 doğruluk (bkz. bölüm 5 — kapsam genişletmesinin doğruluğa etkisi de orada açıklanıyor).
+- **Hibrit arama — TF-IDF + gerçek semantik embedding (Faz 8):** Kapsam tüm tarifeye (~15.700 kod) genişleyince, karakter n-gram TF-IDF'in gerçek sınırı ortaya çıktı: "cep telefonu kılıfı" gibi gündelik bir sorgu, resmi tarife dilindeki "silikon yağları" gibi bir ham madde satırına kayabiliyordu — TF-IDF kelime/harf benzerliğine bakıyor, anlama değil. Buna karşılık tek başına semantik embedding'in de kendi zayıflığı çıktı: iki farklı model denendi, biri uzun/teknik BTB dilinde iyiydi ama kısa/günlük kelimelerde bozuluyordu ("çorap" sorgusu "kopra" — kurutulmuş hindistan cevizi — ile eşleşti), diğeri tam tersi. Çözüm: iki sinyali birlikte kullanan hibrit bir puanlama (`ai-service/app/retrieval.py`) — modern arama sistemlerinin ("hybrid search") standart yaklaşımı. Gerçek testte doğrulandı: hem uzun/teknik hem kısa/günlük sorgular artık doğru pozisyona yöneliyor, skorlar yapay şekilde şişirilmeden (%25-95 arası, sorgunun gerçek belirsizliğini yansıtacak şekilde) geliyor.
 - **RAG-lite (LLM'siz) gerekçelendirme:** Doğal dilde gerekçe üretimi için bir LLM (OpenAI/Anthropic) kullanmak yerine, retrieval + şablon tabanlı deterministik formatlama tercih edildi. Gerekçe, LLM'in "uydurması" değil, gerçek BTB metninin veya gerçek kural metninin doğrudan kendisi — bu, hukuki/mali sonucu olan bir alanda "halüsinasyon" riskini sıfırlıyor. LLM entegrasyonu ileride `ai-service/app/rag.py`'deki çıktının üzerine ince bir "akıcılaştırma" katmanı olarak eklenebilir.
 - **İki katmanlı kapsam (Faz 7 — kod listesi geniş, BTB derin):** Sistem iki farklı veri katmanını bilinçli olarak ayrı tutuyor. (1) **Resmi kod listesi**: artık fasıl 61-64 ile sınırlı değil, Ticaret Bakanlığı'nın resmi Tarife Cetveli'nden (aşağıya bkz.) parse edilen **tüm gümrük tarifesini** (fasıl 1-97, ~15.700 kod) kapsıyor — Mod 1 (öneri) her ürün kategorisi için makul bir kod ailesi önerebiliyor. (2) **BTB kararları (gerçek emsal + gerekçe)**: bilinçli olarak fasıl 61-64'te derin tutuldu — binlerce kararı manuel doğrulamak bu aşamada gerçekleştirilebilir değil. Sistem bu ayrımı kullanıcıdan gizlemiyor: `kanit_seviyesi` alanı her zaman hangi katmandan geldiğini şeffafça işaretliyor ("güçlü kanıt" vs "zayıf kanıt, sadece resmi kod").
 - **Resmi kod listesinin kaynağı — artık tahmine dayanmıyor:** İlk versiyonda `resmi_kod_listesi_61_64.csv` yazarın bilgisinden elle derlenmiş ~50 satırlık bir listeydi (README'de açıkça "doğrulanmalı" diye işaretlenmişti). Faz 7'de bu, Ticaret Bakanlığı'nın resmi "İstatistik Pozisyonlarına Bölünmüş Türk Gümrük Tarife Cetveli" Excel yayınından (`ggm.ticaret.gov.tr`, Karar Sayısı 10781, 30 Aralık 2025 tarihli Resmi Gazete) otomatik parse edilerek üretildi (`ai-service/scripts/parse_tarife_cetveli.py`). Script, Excel'in tire-derinlikli hiyerarşisini (`- / - - / - - -`) ve kelime ortasından tire ile bölünmüş satırları (Excel word-wrap) çözüp her 12 haneli kod için tam ata-zinciri açıklamasını üretiyor. Doğrulama: elimizdeki 41 gerçek BTB kararının **tamamının** GTİP kodu bu listede birebir eşleşiyor (41/41).
@@ -117,8 +117,8 @@ Frontend kaynağını değiştirirsen tekrar build etmen gerekir: `cd frontend &
 ## 10. Bilinen sınırlar (dürüstçe)
 
 - Kural kütüphanesindeki GYK 1-6 artık Ticaret Bakanlığı'nın resmi "yorum kuralları" yayınından birebir (verbatim) alındı — yazarın özeti değil. Ama pozisyona özel notlar (`FASIL90-NOT1B`, `POZ-6307` vb.) hâlâ elle derlendi, resmi metinle birebir doğrulanmadı.
-- Karakter n-gram TF-IDF hâlâ tam anlamda "semantik" değil, kelime/ek benzerliğine dayanıyor — kapsam genişledikçe bu sınır daha görünür hale geliyor (bkz. bölüm 5).
-- Risk eşiği (0.15) kalibre edilmedi — gerçek etiketlenmiş veri olmadığı için elle konuldu.
+- Hibrit arama (Faz 8) TF-IDF'in saf semantik sınırını büyük ölçüde giderdi, ama kombinasyon ağırlığı (0.5/0.5 TF-IDF/embedding) hâlâ elle konulmuş bir ilk tahmin — gerçek feedback verisiyle ince ayar yapılabilir.
+- Risk eşiği (0.15) artık eski TF-IDF-only skor dağılımına göre konulmuştu; hibrit skorlarla (gözlemlenen aralık ~%25-95) yeniden kalibre edilmesi gerekiyor — bu adım henüz yapılmadı.
 - Değerlendirme veri seti küçük (n=41) — istatistiksel güç sınırlı, güven aralığı geniş.
 - BTB kararları (güçlü kanıt katmanı) hâlâ sadece fasıl 61-64'te; tüm tarife için bu derinliği sağlamak manuel doğrulama gerektiriyor, ölçeklenebilir değil.
 
@@ -127,8 +127,10 @@ Bu sınırların hepsi ilgili kod dosyalarında ve `ai-service/README.md`'de dah
 ## 11. Yol haritası
 
 - [x] Resmi kod listesini tüm fasıllara genişletmek (Faz 7 — bkz. bölüm 4, mimari fasıl-bağımsız çalıştığı için kod değişikliği gerekmedi)
+- [x] TF-IDF'ten hibrit (TF-IDF + semantik embedding) aramaya geçiş (Faz 8 — bkz. bölüm 4)
 - [ ] BTB emsal derinliğini kademeli olarak başka fasıllara da yaymak
-- [ ] Feedback verisiyle risk eşiğini kalibre etmek
+- [ ] Risk eşiğini (CONFIDENCE_THRESHOLD) yeni hibrit skor dağılımına göre kalibre etmek
+- [ ] `evaluate.py`'yi hibrit motorla yeniden çalıştırıp güncel doğruluk rakamlarını raporlamak
 - [ ] İsteğe bağlı LLM katmanıyla gerekçe metnini akıcılaştırmak
 - [ ] Görsel/multimodal sınıflandırma (bilerek şimdilik ertelendi — bkz. tasarım notları)
 

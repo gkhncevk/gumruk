@@ -1,12 +1,40 @@
 import { useState } from "react";
 import "./App.css";
-import { ORNEK_SORGULAR, RISK_ETIKET } from "./data/sabitler.jsx";
-import KanitRozeti from "./components/KanitRozeti.jsx";
 
 // Iki farkli senaryoyu gostermek icin: biri sadece aciklamayla arama
 // (GTIP kutusu bos), digeri hazir bir GTIP'i dogrulama (GTIP kutusu dolu).
+const ORNEK_SORGULAR = [
+  {
+    baslik: "Örnek 1 — sadece açıklama (GTİP bilmiyorum)",
+    beyan_edilen_gtip: "",
+    esya_tanimi: "Diz bölgesinde kullanılan, örme kumaştan yapılmış, cırt bantla ayarlanan, hareketi tamamen kısıtlamayan hafif destek bandı",
+  },
+  {
+    baslik: "Örnek 2 — yanlış kod doğrulama",
+    beyan_edilen_gtip: "902110000019",
+    esya_tanimi: "Diz bölgesinde kullanılan, örme kumaştan yapılmış, cırt bantla ayarlanan, hareketi tamamen kısıtlamayan hafif destek bandı",
+  },
+  {
+    baslik: "Örnek 3 — doğru kod doğrulama",
+    beyan_edilen_gtip: "630790100019",
+    esya_tanimi: "Diz bölgesinde kullanılan, örme kumaştan yapılmış, cırt bantla ayarlanan, hareketi tamamen kısıtlamayan hafif destek bandı",
+  },
+];
 
+const RISK_ETIKET = {
+  dusuk: { renk: "#1a7f37", arkaplan: "#e6f4ea", metin: "DÜŞÜK RİSK" },
+  yuksek: { renk: "#c0392b", arkaplan: "#fdecea", metin: "YÜKSEK RİSK" },
+  belirsiz: { renk: "#8a6d00", arkaplan: "#fff8e1", metin: "BELİRSİZ" },
+};
 
+function KanitRozeti({ kaynakTipi }) {
+  const guclu = kaynakTipi === "btb_karari";
+  return (
+    <span className={`kanit-rozeti ${guclu ? "guclu" : "zayif"}`}>
+      {guclu ? "Güçlü kanıt (gerçek BTB kararı)" : "Zayıf kanıt (sadece resmi kod)"}
+    </span>
+  );
+}
 
 function App() {
   const [beyanGtip, setBeyanGtip] = useState("");
@@ -69,6 +97,20 @@ function App() {
   function buKoduDogrula(gtip) {
     setBeyanGtip(gtip);
     analizEt(null, { gtip, tanim: esyaTanimi });
+  }
+
+  // "Ilham al" - sistemin bulduğu en yakın (resmi ya da gerçek BTB) tanımı
+  // input kutusuna dolduruyor, AMA otomatik göndermiyor. Kullanıcı bunu
+  // kendi gerçek ürününe göre düzenleyip öyle gönderir - sistem "yazmıyor",
+  // sadece nasıl bir dilde/üslupta tanım yazılması gerektiğine dair örnek
+  // gösteriyor. Bilerek otomatik submit yok: sistem elindeki gerçek ürünü
+  // görmüyor, üretilen bir tanımı olduğu gibi kullanmak yanlış beyan riski
+  // taşır.
+  function ornekTanimiIlhamAl(tanim) {
+    setEsyaTanimi(tanim);
+    setMod(null);
+    setOneriSonuc(null);
+    setSonuc(null);
   }
 
   async function feedbackGonder(dogruMu) {
@@ -155,7 +197,10 @@ function App() {
         <div className="sonuc">
           <p className="mod-aciklama">
             GTİP kodu belirtmedin — sistem eşya tanımına en yakın {oneriSonuc.sonuclar.length} öneriyi listeledi.
-            İçlerinden birini seçip "Bu kodu doğrula" dersen, risk analizini de görebilirsin.
+            İçlerinden birini seçip "Bu kodu doğrula" dersen, risk analizini de görebilirsin. "Bu tanımı ilham al"
+            dersen, o örnek metni düzenleme kutusuna doldurur — kendi ürününe göre düzenleyip öyle gönder,
+            olduğu gibi kullanma (sistem senin ürününü görmüyor, bu sadece nasıl bir dille yazılması gerektiğine
+            dair bir örnek).
           </p>
           <ul className="oneri-listesi">
             {oneriSonuc.sonuclar.map((o, i) => (
@@ -166,9 +211,19 @@ function App() {
                   <span className="benzerlik">Benzerlik: {(o.benzerlik_skoru * 100).toFixed(1)}%</span>
                 </div>
                 <p className="oneri-referans">{o.referans_esya_tanimi.slice(0, 160)}...</p>
-                <button type="button" className="dogrula-buton" onClick={() => buKoduDogrula(o.onerilen_gtip)}>
-                  Bu kodu doğrula →
-                </button>
+                <div className="oneri-butonlar">
+                  <button type="button" className="dogrula-buton" onClick={() => buKoduDogrula(o.onerilen_gtip)}>
+                    Bu kodu doğrula →
+                  </button>
+                  <button
+                    type="button"
+                    className="ilham-buton"
+                    onClick={() => ornekTanimiIlhamAl(o.referans_esya_tanimi)}
+                    title="Bu tanımı düzenleme kutusuna doldurur, kendi ürününe göre düzenleyip gönderebilirsin"
+                  >
+                    💡 Bu tanımı ilham al
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

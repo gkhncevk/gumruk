@@ -7,7 +7,7 @@ Her kayit sirayla veri setinden cikarilip, kalan verilerle o kaydin GTIP pozisyo
 
 - **Test seti buyuklugu:** 41 (kucuk bir ornek, guven araligi genis - temkinli yorumlanmali)
 - **Model Top-1 dogruluk:** 73.2% (30/41)
-- **Model Top-3 dogruluk:** 78.0% (32/41)
+- **Model Top-3 dogruluk:** 75.6% (31/41)
 - **Cogunluk baseline'i:** 65.9% (her zaman '6307' tahmin etseydik)
 - **Rastgele baseline:** 11.0%
 - **Modelin cogunluk baseline'ina gore farki:** +7.3%
