@@ -9,9 +9,20 @@ sablon tabanli, deterministik bir formatlama ile yapiliyor. Yani bu bir
 
 Iki kaynaktan besleniyor:
   1) BTB kararinin gercek gerekcesi (varsa) - motor.oner() zaten donduruyor
-  2) kurallar_kutuphanesi.csv - GYK ve pozisyon notlarindan derlenen kucuk
-     bir kural kutuphanesi (bkz. dosyanin ustundeki not - bu liste yazarin
-     bilgisinden derlendi, resmi metnin birebir kopyasi degil, dogrulanmali)
+  2) kurallar_kutuphanesi.csv - GYK 1-6 (Faz 7'de Ticaret Bakanligi'nin resmi
+     "yorum kurallari" yayinindan birebir/verbatim alindi - artik yazarin
+     ozeti degil) + birkac pozisyona-ozel not (bunlar hala elle derlendi,
+     bkz. asagidaki fonksiyon).
+
+NOT (Faz 7 - GYK evrensellik duzeltmesi):
+GYK 1-6 tum tarife icin gecerli genel kurallardir - sadece fasil 61-64 icin
+degil. Eski veride bu, "GYK-1-6" adinda TEK bir satirda, sadece 61-64
+pozisyonlarina hardcode edilmis bir "ilgili_pozisyonlar" listesiyle
+tutuluyordu - yani resmi kod listesi tum tarifeye genisleyince (Faz 7),
+mesela bir GTIP 8501 sorgusunda GYK kurallari hic gosterilmiyordu (gercek
+bir bug). Simdi her GYK kurali kendi satirinda, "ilgili_pozisyonlar: TUM"
+ile isaretleniyor - ilgili_kurallari_bul() bunu her pozisyon icin daima
+eslesen bir joker deger olarak isliyor.
 """
 
 import csv
@@ -39,12 +50,14 @@ _KURALLAR = _load_kurallar()
 
 
 def ilgili_kurallari_bul(gtip_pozisyon: str):
-    """4 haneli pozisyona (orn. '6307') gore ilgili genel kurallari dondurur."""
+    """4 haneli pozisyona (orn. '6307') gore ilgili genel kurallari dondurur.
+    "TUM" isaretli kurallar (GYK 1-6) her pozisyon icin daima eslesir -
+    bunlar tarifenin tamaminda gecerli genel yorum kurallaridir."""
     poz = gtip_pozisyon[:4]
     return [
         {"kural_id": r["kural_id"], "metin": r["kural_metni"]}
         for r in _KURALLAR
-        if poz in r["pozisyonlar"]
+        if "TUM" in r["pozisyonlar"] or poz in r["pozisyonlar"]
     ]
 
 

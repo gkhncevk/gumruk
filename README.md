@@ -116,7 +116,7 @@ Frontend kaynağını değiştirirsen tekrar build etmen gerekir: `cd frontend &
 
 ## 10. Bilinen sınırlar (dürüstçe)
 
-- Kural kütüphanesi (`kurallar_kutuphanesi.csv`, GYK 1-6 ve birkaç fasıl notu) hâlâ yazarın bilgisinden elle derlendi — resmi kod listesinin aksine bu henüz resmi metinle birebir doğrulanmadı. (Resmi kod listesi artık doğrulanmış — bkz. bölüm 4.)
+- Kural kütüphanesindeki GYK 1-6 artık Ticaret Bakanlığı'nın resmi "yorum kuralları" yayınından birebir (verbatim) alındı — yazarın özeti değil. Ama pozisyona özel notlar (`FASIL90-NOT1B`, `POZ-6307` vb.) hâlâ elle derlendi, resmi metinle birebir doğrulanmadı.
 - Karakter n-gram TF-IDF hâlâ tam anlamda "semantik" değil, kelime/ek benzerliğine dayanıyor — kapsam genişledikçe bu sınır daha görünür hale geliyor (bkz. bölüm 5).
 - Risk eşiği (0.15) kalibre edilmedi — gerçek etiketlenmiş veri olmadığı için elle konuldu.
 - Değerlendirme veri seti küçük (n=41) — istatistiksel güç sınırlı, güven aralığı geniş.
