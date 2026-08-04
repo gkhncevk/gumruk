@@ -1,0 +1,19 @@
+# Python
+ai-service/venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+frontend/dist/
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.local
+
+# Logs
+*.log
+npm-debug.log*

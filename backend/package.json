@@ -1,0 +1,16 @@
+{
+  "name": "gumruk-backend",
+  "version": "1.0.0",
+  "description": "GTIP risk analizi backend'i - Python ai-service'i proxy'ler, React frontend'i sunar",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
