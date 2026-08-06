@@ -1,0 +1,21 @@
+services:
+  ai-service:
+    build:
+      context: ./ai-service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai-service/data:/app/data
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - AI_SERVICE_URL=http://ai-service:8000
+    depends_on:
+      - ai-service
+    restart: unless-stopped
