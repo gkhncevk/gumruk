@@ -149,8 +149,10 @@ yeterli - geri kalan mantik (cosine similarity, sonuc formati) ayni kalir.
   (sistem emin degil, manuel inceleme onerilir - "yuksek risk" demek yerine
   durustce "bilmiyorum" demesi onemli, yoksa yanlis alarm cok olur)
 
-0.15 esigi elle konulmus bir baslangic degeri, gercek "riskli/risksiz"
-etiketlenmis beyanname verisiyle kalibre edilmedi - bunu unutma.
+0.30 esigi (Faz 8'de hibrit skor dagilimina gore 0.15'ten yukseltildi)
+hala elle konulmus bir deger, gercek "riskli/risksiz" etiketlenmis
+beyanname verisiyle istatistiksel olarak tam kalibre edilmedi - bkz.
+risk.py'deki FAZ 8 GUNCELLEMESI notu. Bunu unutma.
 
 ## Faz 4 - Gerekcelendirme (RAG-lite) nasil calisiyor?
 
@@ -170,6 +172,19 @@ LLM'in dogal dil sentezi degil, sablon tabanli deterministik formatlama.
 Gercek LLM tabanli surume gecmek istersen `gerekce_uret()` fonksiyonunun
 sonunda bulunan metinleri bir LLM'e (OpenAI/Anthropic API) verip "bunlari
 akici bir paragrafa cevir" diye istemen yeterli olur.
+
+## Testler
+
+```bash
+pip install -r requirements-dev.txt
+pytest -v
+```
+
+`tests/test_risk.py` ve `tests/test_rag.py` sahte (fake) bir motor/hafif
+CSV okumasi kullanir, network gerektirmez. `tests/test_retrieval.py`
+gercek `GtipOneriMotoru`'nu (sentence-transformers modeli indirir) kurmaya
+calisir - ag erisimi yoksa (bu ortamda oldugu gibi) o dosyadaki testler
+sessizce degil, acikca "SKIPPED + sebep" olarak isaretlenip gecilir.
 
 ## Bilinen sinirlar
 
@@ -191,7 +206,7 @@ akici bir paragrafa cevir" diye istemen yeterli olur.
   n-gram ortusmesiyle dogru BTB emsalinin onune geciyor (bkz.
   `DEGERLENDIRME_RAPORU.md`). Bu, gercek semantik embedding'e gecisin neden
   hala yol haritasinda oldugunun somut kaniti.
-- **Risk esigi (0.15) kalibre edilmedi** - yukarida aciklandi.
+- **Risk esigi (0.30) kalibre edilmedi** - yukarida aciklandi.
 - **BTB (guclu kanit) derinligi hala sadece fasil 61-64'te** - resmi kod
   listesi tum tarifeyi kapsasa da, gercek gerekceli emsal sadece bu
   fasillarda var; baska fasillardaki oneriler her zaman "zayif kanit"

@@ -52,7 +52,7 @@ Bu proje boyunca alınan her mimari karar bilinçli bir trade-off'un sonucu — 
 | Metrik | Değer |
 |---|---|
 | Genel Top-1 doğruluk | %73.2 (30/41) |
-| Genel Top-3 doğruluk | %78.0 (32/41) |
+| Genel Top-3 doğruluk | %75.6 (31/41) |
 | Çoğunluk baseline'ı | %65.9 |
 | **Yeterli emsali olan pozisyonlarda (n≥2) doğruluk** | **%88.2 (30/34)** |
 | Tek örnekli pozisyonlarda | 0/7 (yapısal olarak beklenen, aşağıda açıklanıyor) |
@@ -130,7 +130,7 @@ Bu sınırların hepsi ilgili kod dosyalarında ve `ai-service/README.md`'de dah
 - [x] TF-IDF'ten hibrit (TF-IDF + semantik embedding) aramaya geçiş (Faz 8 — bkz. bölüm 4)
 - [ ] BTB emsal derinliğini kademeli olarak başka fasıllara da yaymak
 - [ ] Risk eşiğini (CONFIDENCE_THRESHOLD) yeni hibrit skor dağılımına göre kalibre etmek
-- [ ] `evaluate.py`'yi hibrit motorla yeniden çalıştırıp güncel doğruluk rakamlarını raporlamak
+- [x] `evaluate.py`'yi hibrit motorla yeniden çalıştırıp güncel doğruluk rakamlarını raporlamak (bkz. bölüm 5, rakamlar `DEGERLENDIRME_RAPORU.md` ile senkron)
 - [ ] İsteğe bağlı LLM katmanıyla gerekçe metnini akıcılaştırmak
 - [ ] Görsel/multimodal sınıflandırma (bilerek şimdilik ertelendi — bkz. tasarım notları)
 
