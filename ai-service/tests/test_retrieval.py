@@ -42,11 +42,16 @@ def test_oner_sonuclari_skora_gore_azalan_sirali():
 
 
 def test_haric_index_o_satiri_disliyor():
+    """NOT: GTIP kodu yerine referans_esya_tanimi (satirin kendi metni) ile
+    kontrol ediyoruz - cunku ayni GTIP koduna (orn. en sik gorulen 6307.90.10
+    "diger hazir tekstil esyasi") sahip birden fazla farkli satir olabilir;
+    tek bir satiri dislamek bu durumda GTIP kodunu degistirmeyebilir, ama
+    dislanan SATIR kesinlikle bir daha en iyi sonuc olarak donmemeli."""
     tum_sonuclar = _motor.oner("diz bolgesinde kullanilan orme destek bandi", top_k=1)
-    en_iyi_gtip = tum_sonuclar[0]["onerilen_gtip"]
-    en_iyi_idx = next(i for i, r in enumerate(_motor.rows) if r["gtip_no"] == en_iyi_gtip)
+    en_iyi_metin = tum_sonuclar[0]["referans_esya_tanimi"]
+    en_iyi_idx = next(i for i, r in enumerate(_motor.rows) if r["esya_tanimi"] == en_iyi_metin)
 
     disli_sonuclar = _motor.oner(
         "diz bolgesinde kullanilan orme destek bandi", top_k=1, haric_index=en_iyi_idx
     )
-    assert disli_sonuclar[0]["onerilen_gtip"] != en_iyi_gtip or len(_motor.rows) == 1
+    assert disli_sonuclar[0]["referans_esya_tanimi"] != en_iyi_metin
