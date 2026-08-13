@@ -29,6 +29,7 @@ Calistirmak icin:
 """
 
 import csv
+import math
 import os
 import random
 from collections import Counter
@@ -36,6 +37,22 @@ from collections import Counter
 from app.retrieval import GtipOneriMotoru, BTB_PATH
 
 random.seed(42)
+
+
+def wilson_guven_araligi(basari, n, guven=0.95):
+    """Wilson skor araligi - kucuk n'de (bizim durumumuzda n=41 gibi) normal
+    yaklasimdan (basit +-1.96*std) daha guvenilir, cunku negatif alt sinir
+    veya %100'u asan ust sinir gibi imkansiz degerler uretmiyor. n=41 gibi
+    kucuk bir orneklemde "%73.2 dogruluk" tek basina yaniltici olabilir -
+    bu, o rakamin ne kadar belirsiz oldugunu da acikca gosteriyor."""
+    if n == 0:
+        return (0.0, 0.0)
+    z = 1.959963984540054  # %95 guven icin z-skoru
+    phat = basari / n
+    denom = 1 + z * z / n
+    merkez = (phat + z * z / (2 * n)) / denom
+    yaricap = (z * math.sqrt((phat * (1 - phat) + z * z / (4 * n)) / n)) / denom
+    return (max(0.0, merkez - yaricap), min(1.0, merkez + yaricap))
 
 
 def load_btb_rows():
@@ -90,6 +107,7 @@ def main():
 
     model_top1_acc = top1_dogru / n
     model_top3_acc = top3_dogru / n
+    top1_ga_alt, top1_ga_ust = wilson_guven_araligi(top1_dogru, n)
 
     # Segmentli analiz: pozisyon basina kac ornek var? Tekil (n=1) pozisyonlar
     # leave-one-out'ta YAPISAL olarak basarisiz olmak zorunda - o tek ornek
@@ -105,6 +123,7 @@ def main():
     yeterli_n = len(yeterli_veri_detaylar)
     yeterli_dogru = sum(d["top1_dogru"] for d in yeterli_veri_detaylar)
     yeterli_acc = yeterli_dogru / yeterli_n if yeterli_n else 0.0
+    yeterli_ga_alt, yeterli_ga_ust = wilson_guven_araligi(yeterli_dogru, yeterli_n)
 
     tekil_n = len(tekil_detaylar)
     tekil_dogru = sum(d["top1_dogru"] for d in tekil_detaylar)
@@ -117,7 +136,8 @@ def main():
     print(f"     zorunda (tek ornek cikarilinca geriye emsal kalmiyor). Sonuc: {tekil_dogru}/{tekil_n} dogru.")
     print(f"     Bu bir model hatasi degil, veri toplama ihtiyacinin kanitidir.")
     print()
-    print(f"Yeterli ornekli pozisyonlar (n>=2): {yeterli_dogru}/{yeterli_n} = {yeterli_acc:.1%} dogruluk")
+    print(f"Yeterli ornekli pozisyonlar (n>=2): {yeterli_dogru}/{yeterli_n} = {yeterli_acc:.1%} dogruluk "
+          f"(%95 Wilson guven araligi: {yeterli_ga_alt:.1%} - {yeterli_ga_ust:.1%})")
     for poz in sorted(set(d["dogru_pozisyon"] for d in yeterli_veri_detaylar)):
         alt = [d for d in yeterli_veri_detaylar if d["dogru_pozisyon"] == poz]
         alt_dogru = sum(d["top1_dogru"] for d in alt)
@@ -144,7 +164,8 @@ def main():
     print(f"Benzersiz pozisyon sayisi       : {len(tum_pozisyonlar)}")
     print(f"En sik pozisyon                 : {en_sik_pozisyon} ({en_sik_adet}/{n} kayit)")
     print("-" * 60)
-    print(f"Model  - Top-1 dogruluk         : {model_top1_acc:.1%}  ({top1_dogru}/{n})")
+    print(f"Model  - Top-1 dogruluk         : {model_top1_acc:.1%}  ({top1_dogru}/{n})  "
+          f"[%95 GA: {top1_ga_alt:.1%} - {top1_ga_ust:.1%}]")
     print(f"Model  - Top-3 dogruluk         : {model_top3_acc:.1%}  ({top3_dogru}/{n})")
     print(f"Baseline - Cogunluk tahmini     : {cogunluk_acc:.1%}")
     print(f"Baseline - Rastgele tahmin      : {rastgele_acc:.1%}")
@@ -175,7 +196,8 @@ def main():
         f.write(f"Her kayit sirayla veri setinden cikarilip, kalan verilerle o kaydin GTIP pozisyonu tahmin edilmeye calisildi.\n\n")
         f.write("## Sonuclar\n\n")
         f.write(f"- **Test seti buyuklugu:** {n} (kucuk bir ornek, guven araligi genis - temkinli yorumlanmali)\n")
-        f.write(f"- **Model Top-1 dogruluk:** {model_top1_acc:.1%} ({top1_dogru}/{n})\n")
+        f.write(f"- **Model Top-1 dogruluk:** {model_top1_acc:.1%} ({top1_dogru}/{n}) "
+                f"— %95 Wilson güven aralığı: {top1_ga_alt:.1%} - {top1_ga_ust:.1%}\n")
         f.write(f"- **Model Top-3 dogruluk:** {model_top3_acc:.1%} ({top3_dogru}/{n})\n")
         f.write(f"- **Cogunluk baseline'i:** {cogunluk_acc:.1%} (her zaman '{en_sik_pozisyon}' tahmin etseydik)\n")
         f.write(f"- **Rastgele baseline:** {rastgele_acc:.1%}\n")
@@ -187,7 +209,8 @@ def main():
                 f"bir zorunluluk**, model kalitesizligi degil. Bu, veri toplamaya devam etme ihtiyacinin "
                 f"kanitidir (her pozisyon icin en az birkac ornek gerekli).\n\n")
         f.write(f"Asil anlamli sinyal, yeterli ornegi olan pozisyonlardaki performans:\n\n")
-        f.write(f"- **Yeterli ornekli pozisyonlar (n>=2):** {yeterli_dogru}/{yeterli_n} = {yeterli_acc:.1%} dogruluk\n")
+        f.write(f"- **Yeterli ornekli pozisyonlar (n>=2):** {yeterli_dogru}/{yeterli_n} = {yeterli_acc:.1%} dogruluk "
+                f"— %95 Wilson güven aralığı: {yeterli_ga_alt:.1%} - {yeterli_ga_ust:.1%}\n")
         for poz in sorted(set(d["dogru_pozisyon"] for d in yeterli_veri_detaylar)):
             alt = [d for d in yeterli_veri_detaylar if d["dogru_pozisyon"] == poz]
             alt_dogru = sum(d["top1_dogru"] for d in alt)

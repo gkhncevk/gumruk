@@ -1,5 +1,7 @@
 # GTİP Risk & Gerekçelendirme Asistanı
 
+[![CI](https://github.com/gkhncevk/gumruk/actions/workflows/ci.yml/badge.svg)](https://github.com/gkhncevk/gumruk/actions/workflows/ci.yml)
+
 **Bir beyannamedeki eşya tanımı ve beyan edilen GTİP kodunu analiz eden, gerçek Bağlayıcı Tarife Bilgisi (BTB) kararlarına ve resmi sınıflandırma kurallarına dayanarak risk skoru + hukuki gerekçe üreten bir gümrük karar destek sistemi.**
 
 Sistem sadece "bu ürün X kodudur" demiyor — **neden** olduğunu, hangi gerçek BTB kararına veya hangi Genel Yorum Kuralı'na dayandığını açıkça gösteriyor. Bu, bir "demo script"ten çok bir karar destek aracı gibi davranmasını sağlıyor.
@@ -47,7 +49,9 @@ Bu proje boyunca alınan her mimari karar bilinçli bir trade-off'un sonucu — 
 
 ## 5. Ölçülmüş doğruluk (leave-one-out değerlendirme)
 
-`ai-service/evaluate.py`, her BTB kararını sırayla veri setinden çıkarıp "hiç görülmemiş yeni ürün" gibi test ediyor (tam rapor: `ai-service/DEGERLENDIRME_RAPORU.md`).
+`ai-service/evaluate.py`, her BTB kararını sırayla veri setinden çıkarıp "hiç görülmemiş yeni ürün" gibi test ediyor (tam rapor: `ai-service/DEGERLENDIRME_RAPORU.md`, artık %95 Wilson güven aralığıyla birlikte — n=41 gibi küçük bir örneklemde tek bir yüzde rakamı yanıltıcı olabileceği için).
+
+**Ablation çalışması:** Hibrit ağırlığın (0.7 TF-IDF / 0.3 embedding) neden bu şekilde seçildiği artık sadece bir anlatı değil, ölçülmüş bir karşılaştırma — `ai-service/ablation.py`, aynı leave-one-out yöntemini saf TF-IDF, saf embedding ve hibrit konfigürasyonlarının üçünde de çalıştırıp `ai-service/ABLATION_RAPORU.md`'ye yazıyor.
 
 | Metrik | Değer |
 |---|---|
@@ -73,6 +77,14 @@ Backend üzerinden (`http://localhost:3000/api/...`) veya doğrudan AI servisind
 | `/` | GET | Health check |
 
 ## 7. Kurulum ve çalıştırma
+
+**Hızlı yol — Docker Compose (tek komut, önerilen):**
+```bash
+docker compose up --build
+```
+`ai-service` ve `backend`'i (frontend build'i dahil) tek seferde ayağa kaldırır. İlk çalıştırmada `sentence-transformers` bağımlılığı (torch) indirileceği için birkaç dakika sürebilir. Bitince `http://localhost:3000` aç.
+
+**Manuel yol (Docker kullanmadan):**
 
 **1. Python AI servisi:**
 ```bash
@@ -128,9 +140,13 @@ Bu sınırların hepsi ilgili kod dosyalarında ve `ai-service/README.md`'de dah
 
 - [x] Resmi kod listesini tüm fasıllara genişletmek (Faz 7 — bkz. bölüm 4, mimari fasıl-bağımsız çalıştığı için kod değişikliği gerekmedi)
 - [x] TF-IDF'ten hibrit (TF-IDF + semantik embedding) aramaya geçiş (Faz 8 — bkz. bölüm 4)
+- [x] `evaluate.py`'yi hibrit motorla yeniden çalıştırıp güncel doğruluk rakamlarını raporlamak (bkz. bölüm 5, rakamlar `DEGERLENDIRME_RAPORU.md` ile senkron)
+- [x] Doğruluk rakamlarına istatistiksel güven aralığı eklemek (bkz. bölüm 5, Wilson güven aralığı)
+- [x] Arama konfigürasyonları için ablation karşılaştırması (bkz. bölüm 5, `ablation.py`)
+- [x] CI: her push'ta testleri ve build'i otomatik çalıştırmak (bkz. `.github/workflows/ci.yml`)
+- [x] Tek komutla kurulum (Docker Compose — bkz. bölüm 7)
 - [ ] BTB emsal derinliğini kademeli olarak başka fasıllara da yaymak
 - [ ] Risk eşiğini (CONFIDENCE_THRESHOLD) yeni hibrit skor dağılımına göre kalibre etmek
-- [x] `evaluate.py`'yi hibrit motorla yeniden çalıştırıp güncel doğruluk rakamlarını raporlamak (bkz. bölüm 5, rakamlar `DEGERLENDIRME_RAPORU.md` ile senkron)
 - [ ] İsteğe bağlı LLM katmanıyla gerekçe metnini akıcılaştırmak
 - [ ] Görsel/multimodal sınıflandırma (bilerek şimdilik ertelendi — bkz. tasarım notları)
 

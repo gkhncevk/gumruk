@@ -142,7 +142,15 @@ class GtipOneriMotoru:
     embedding (anlam benzerligi) skorlarinin normalize edilip agirlikli
     ortalamasi alinarak hesaplaniyor - bkz. dosyanin ustundeki not."""
 
-    def __init__(self, btb_path: str = BTB_PATH, resmi_kod_path: str = RESMI_KOD_PATH, exclude_btb_no: str = None):
+    def __init__(self, btb_path: str = BTB_PATH, resmi_kod_path: str = RESMI_KOD_PATH, exclude_btb_no: str = None,
+                 tfidf_agirlik: float = TFIDF_AGIRLIK, embedding_agirlik: float = EMBEDDING_AGIRLIK):
+        # Agirliklar constructor parametresi olarak da verilebilir - varsayilan
+        # (0.7/0.3) uretimde kullanilan deger, ama ablation.py bu parametreyi
+        # kullanarak ayni motoru farkli agirliklarla (orn. saf TF-IDF icin
+        # 1.0/0.0, saf embedding icin 0.0/1.0) kurup karsilastirabiliyor -
+        # kod degismiyor, sadece agirlik degisiyor.
+        self.tfidf_agirlik = tfidf_agirlik
+        self.embedding_agirlik = embedding_agirlik
         self.rows = self._load_btb(btb_path) + self._load_resmi_kod(resmi_kod_path)
 
         # exclude_btb_no: leave-one-out degerlendirmesi icin - "bu kayit hic
@@ -232,7 +240,7 @@ class GtipOneriMotoru:
         # Sorguya gore DEGIL, sabit agirlikla birlestir (bkz. yukaridaki not
         # - sorgu-bazli normalizasyon "en iyi ama objektif olarak kotu"
         # adaylari yapay olarak yuksek gosteriyordu).
-        birlesik = TFIDF_AGIRLIK * tfidf_sims + EMBEDDING_AGIRLIK * emb_sims
+        birlesik = self.tfidf_agirlik * tfidf_sims + self.embedding_agirlik * emb_sims
 
         if haric_index is not None:
             birlesik[haric_index] = -1.0
