@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>txt-file agent</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%235b8cff'/%3E%3Ctext x='50' y='68' font-size='55' text-anchor='middle' fill='white' font-family='sans-serif'%3Etx%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1d212b; --border: #262b36; --text: #e6e8ec;
+    --muted: #8a90a0; --accent: #5b8cff; --accent-dim: #2b3a63;
+    --danger: #e5566b; --ok: #4cb782;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column;
+    font-size: 14px;
+  }
+
+  header {
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .logo {
+    width: 26px; height: 26px; border-radius: 7px; background: var(--accent);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: white;
+  }
+  .brand h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  .status { display: flex; align-items: center; gap: 6px; margin-left: 8px; color: var(--muted); font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.ok { background: var(--ok); }
+  .dot.fail { background: var(--danger); }
+  .dot.pending { background: #d9a441; }
+
+  .config-bar {
+    padding: 10px 20px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--panel);
+  }
+  .field-group { display: flex; align-items: center; gap: 6px; }
+  .field-label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  input, select {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 7px 10px; border-radius: 8px; font-size: 13px; font-family: inherit;
+  }
+  #folder { width: 300px; }
+  #model { min-width: 200px; }
+  button {
+    background: var(--accent); color: white; border: none; padding: 7px 13px; border-radius: 8px;
+    font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  button.secondary { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  button:disabled { opacity: .5; cursor: default; }
+
+  main { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  .empty-state { margin: auto; text-align: center; color: var(--muted); max-width: 380px; }
+  .empty-state h2 { color: var(--text); font-size: 16px; margin-bottom: 6px; }
+  .empty-state p { font-size: 13px; line-height: 1.6; }
+
+  .msg { max-width: 720px; padding: 10px 14px; border-radius: 12px; line-height: 1.45; font-size: 14px; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--accent-dim); }
+  .msg.agent { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+  .msg.error { align-self: flex-start; background: #3a1e22; border: 1px solid var(--danger); color: #ffb4bf; }
+
+  .thinking { align-self: flex-start; display: flex; gap: 4px; padding: 14px; }
+  .thinking span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: bounce 1.2s infinite ease-in-out; }
+  .thinking span:nth-child(2) { animation-delay: .15s; }
+  .thinking span:nth-child(3) { animation-delay: .3s; }
+  @keyframes bounce { 0%, 80%, 100% { opacity: .3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+
+  .plan { align-self: flex-start; max-width: 720px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 12px 14px; }
+  .plan h3 { margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .action-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .action-row:first-of-type { border-top: none; }
+  .action-row input[type=checkbox] { margin-top: 3px; }
+  .plan-buttons { margin-top: 10px; display: flex; gap: 8px; }
+  .result-ok { color: var(--ok); font-size: 12px; margin-top: 4px; }
+  .result-fail { color: var(--danger); font-size: 12px; margin-top: 4px; }
+
+  footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+  footer textarea {
+    flex: 1; resize: none; background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    border-radius: 10px; padding: 10px 12px; font-size: 14px; font-family: inherit; height: 44px;
+  }
+
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+    align-items: center; justify-content: center; z-index: 10;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; width: 460px; max-height: 70vh; display: flex; flex-direction: column; }
+  .modal-head { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .modal-head .path { font-size: 12px; color: var(--muted); word-break: break-all; margin-top: 4px; font-family: monospace; }
+  .modal-body { flex: 1; overflow-y: auto; padding: 6px 0; }
+  .browse-item { padding: 9px 16px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .browse-item:hover { background: var(--panel-2); }
+  .modal-foot { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+  .browse-error { color: var(--danger); font-size: 12px; padding: 10px 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="logo">tx</div>
+    <h1>txt-file agent</h1>
+  </div>
+  <div class="status">
+    <span id="statusDot" class="dot pending"></span>
+    <span id="statusText">Ollama'ya bağlanılıyor…</span>
+  </div>
+</header>
+
+<div class="config-bar">
+  <div class="field-group">
+    <span class="field-label">Klasör</span>
+    <input id="folder" type="text" placeholder="/Users/sen/Documents/notlar" />
+    <button class="secondary" id="browseBtn">Gözat</button>
+  </div>
+  <div class="field-group">
+    <span class="field-label">Model</span>
+    <select id="model"><option>yükleniyor…</option></select>
+  </div>
+  <button class="ghost" id="clearBtn" style="margin-left:auto">Sohbeti temizle</button>
+</div>
+
+<main id="messages">
+  <div class="empty-state" id="emptyState">
+    <h2>Başlamaya hazır</h2>
+    <p>Üstten bir klasör seç (ya da yolunu yaz), ardından aşağıya o klasördeki .txt, .md ve .csv dosyalarıyla ne yapmak istediğini yaz. Örn: "dosyaları içeriklerine göre yeniden adlandır".</p>
+  </div>
+</main>
+
+<footer>
+  <textarea id="input" placeholder="Örn: bu klasördeki dosyaları içeriklerine göre yeniden adlandır"></textarea>
+  <button id="send">Gönder</button>
+</footer>
+
+<div class="modal-overlay" id="browseModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div>Klasör seç</div>
+      <div class="path" id="browsePathLabel">—</div>
+    </div>
+    <div class="modal-body" id="browseList"></div>
+    <div class="browse-error" id="browseError" style="display:none"></div>
+    <div class="modal-foot">
+      <button class="ghost" id="browseCancel">İptal</button>
+      <button id="browseSelect">Bu klasörü seç</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const messagesEl = document.getElementById('messages');
+const emptyState = document.getElementById('emptyState');
+const folderEl = document.getElementById('folder');
+const modelEl = document.getElementById('model');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const clearBtn = document.getElementById('clearBtn');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+// Persist the session id across page reloads/restarts so the conversation
+// history you built up doesn't become orphaned every time you refresh the
+// page or restart the server (Flask's debug reloader restarts the process
+// on every file save).
+let sessionId = localStorage.getItem('txt-agent-session');
+if (!sessionId) {
+  sessionId = Math.random().toString(36).slice(2);
+  localStorage.setItem('txt-agent-session', sessionId);
+}
+
+// ---------- persistence (this app runs entirely on your own machine, so
+// localStorage is just remembering your last folder/model between visits) ----------
+folderEl.value = localStorage.getItem('txt-agent-folder') || '';
+folderEl.addEventListener('change', () => localStorage.setItem('txt-agent-folder', folderEl.value));
+
+// ---------- restore past conversation for this session ----------
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/history?session_id=' + encodeURIComponent(sessionId));
+    const data = await res.json();
+    (data.history || []).forEach(entry => {
+      if (!entry.content) return;  // skip empty assistant replies
+      addMsg(entry.content, entry.role === 'user' ? 'user' : 'agent');
+    });
+  } catch (e) {
+    // if this fails we just start with an empty chat -- not fatal
+  }
+}
+loadHistory();
+
+// ---------- Ollama connection + model list ----------
+async function loadModels() {
+  try {
+    const res = await fetch('/api/models');
+    const data = await res.json();
+    if (data.ok && data.models && data.models.length) {
+      modelEl.innerHTML = '';
+      data.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m;
+        modelEl.appendChild(opt);
+      });
+      const saved = localStorage.getItem('txt-agent-model');
+      if (saved && data.models.includes(saved)) modelEl.value = saved;
+      statusDot.className = 'dot ok';
+      statusText.textContent = `Ollama bağlı — ${data.models.length} model bulundu`;
+    } else {
+      statusDot.className = 'dot fail';
+      statusText.textContent = 'Ollama bulunamadı — terminalde "ollama serve" çalışıyor mu?';
+      modelEl.innerHTML = '<option>—</option>';
+    }
+  } catch (e) {
+    statusDot.className = 'dot fail';
+    statusText.textContent = 'Ollama bulunamadı — terminalde "ollama serve" çalışıyor mu?';
+    modelEl.innerHTML = '<option>—</option>';
+  }
+}
+modelEl.addEventListener('change', () => localStorage.setItem('txt-agent-model', modelEl.value));
+loadModels();
+
+// ---------- folder browser modal ----------
+const modal = document.getElementById('browseModal');
+const browseList = document.getElementById('browseList');
+const browsePathLabel = document.getElementById('browsePathLabel');
+const browseError = document.getElementById('browseError');
+let currentBrowsePath = null;
+
+async function loadBrowse(path) {
+  browseError.style.display = 'none';
+  const res = await fetch('/api/browse?path=' + encodeURIComponent(path));
+  const data = await res.json();
+  if (data.error) { browseError.textContent = data.error; browseError.style.display = 'block'; return; }
+  currentBrowsePath = data.path;
+  browsePathLabel.textContent = data.path;
+  browseList.innerHTML = '';
+  if (data.parent) {
+    const up = document.createElement('div');
+    up.className = 'browse-item';
+    up.textContent = '⬅ .. (üst klasör)';
+    up.onclick = () => loadBrowse(data.parent);
+    browseList.appendChild(up);
+  }
+  if (!data.dirs.length) {
+    const none = document.createElement('div');
+    none.className = 'browse-item';
+    none.style.color = 'var(--muted)';
+    none.textContent = '(alt klasör yok)';
+    browseList.appendChild(none);
+  }
+  data.dirs.forEach(d => {
+    const item = document.createElement('div');
+    item.className = 'browse-item';
+    item.textContent = '📁 ' + d;
+    item.onclick = () => loadBrowse(data.path + '/' + d);
+    browseList.appendChild(item);
+  });
+}
+document.getElementById('browseBtn').onclick = () => {
+  modal.classList.add('open');
+  loadBrowse(folderEl.value || '~');
+};
+document.getElementById('browseCancel').onclick = () => modal.classList.remove('open');
+document.getElementById('browseSelect').onclick = () => {
+  if (!currentBrowsePath) return;
+  folderEl.value = currentBrowsePath;
+  localStorage.setItem('txt-agent-folder', currentBrowsePath);
+  modal.classList.remove('open');
+};
+
+// ---------- chat ----------
+function addMsg(text, cls) {
+  emptyState.style.display = 'none';
+  const div = document.createElement('div');
+  div.className = 'msg ' + cls;
+  div.textContent = text;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return div;
+}
+
+function addThinking() {
+  const div = document.createElement('div');
+  div.className = 'thinking';
+  div.innerHTML = '<span></span><span></span><span></span>';
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return div;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s == null ? '' : s;
+  return div.innerHTML;
+}
+
+function contentPreview(content, max) {
+  const c = content || '';
+  const shown = c.length > max ? c.slice(0, max) + '…' : c;
+  return `<div style="margin-top:4px;padding:8px 10px;background:#0f1115;border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--muted);white-space:pre-wrap;max-height:160px;overflow-y:auto">${escapeHtml(shown)}</div>`;
+}
+
+function actionLabel(a) {
+  switch (a.type) {
+    case 'rename': return `yeniden adlandır: ${escapeHtml(a.from)} → ${escapeHtml(a.to)}`;
+    case 'move': return `taşı: ${escapeHtml(a.from)} → ${escapeHtml(a.to)}`;
+    case 'write': return `içeriği güncelle: ${escapeHtml(a.path)} — yeni içerik önizlemesi:` + contentPreview(a.content, 600);
+    case 'merge': return `birleştir: ${(a.sources||[]).map(escapeHtml).join(', ')} → ${escapeHtml(a.into)}`;
+    case 'split': return `böl: ${escapeHtml(a.source)} → ${(a.parts||[]).map(p=>escapeHtml(p.name)).join(', ')}`;
+    case 'delete': return `sil: ${escapeHtml(a.path)}`;
+    default: return escapeHtml(JSON.stringify(a));
+  }
+}
+
+function addPlan(plan) {
+  const box = document.createElement('div');
+  box.className = 'plan';
+  const h = document.createElement('h3');
+  h.textContent = plan.actions.length ? `Önerilen ${plan.actions.length} işlem` : 'Önerilen işlem yok';
+  box.appendChild(h);
+
+  const checkboxes = [];
+  plan.actions.forEach((a, i) => {
+    const row = document.createElement('div');
+    row.className = 'action-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = true; cb.dataset.idx = i;
+    checkboxes.push(cb);
+    const label = document.createElement('span');
+    label.innerHTML = actionLabel(a);
+    row.appendChild(cb); row.appendChild(label);
+    box.appendChild(row);
+  });
+
+  if (plan.actions.length) {
+    const btnRow = document.createElement('div');
+    btnRow.className = 'plan-buttons';
+    const applyBtn = document.createElement('button');
+    applyBtn.textContent = 'Seçilenleri uygula';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ghost';
+    cancelBtn.textContent = 'İptal';
+    cancelBtn.onclick = () => { applyBtn.disabled = true; cancelBtn.disabled = true; };
+    applyBtn.onclick = async () => {
+      applyBtn.disabled = true; cancelBtn.disabled = true;
+      const selected = plan.actions.filter((_, i) => checkboxes[i].checked);
+      const res = await fetch('/api/apply', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ folder: folderEl.value, actions: selected, session_id: sessionId })
+      });
+      const data = await res.json();
+      if (data.error) { addMsg('Hata: ' + data.error, 'error'); return; }
+      data.results.forEach(r => {
+        const line = document.createElement('div');
+        line.className = r.ok ? 'result-ok' : 'result-fail';
+        line.textContent = (r.ok ? '✓ ' : '✗ ') + actionLabel(r.action).replace(/<[^>]+>/g, '') + (r.ok ? '' : ' — ' + r.detail);
+        box.appendChild(line);
+      });
+    };
+    btnRow.appendChild(applyBtn); btnRow.appendChild(cancelBtn);
+    box.appendChild(btnRow);
+  }
+
+  messagesEl.appendChild(box);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function send() {
+  const message = inputEl.value.trim();
+  const folder = folderEl.value.trim();
+  if (!message) return;
+  if (!folder) { addMsg('Önce üstteki kutuya klasör yolunu gir ya da "Gözat" ile seç.', 'error'); return; }
+
+  addMsg(message, 'user');
+  inputEl.value = '';
+  sendBtn.disabled = true;
+  const thinking = addThinking();
+
+  try {
+    const res = await fetch('/api/plan', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ folder, message, model: modelEl.value, session_id: sessionId })
+    });
+    const data = await res.json();
+    thinking.remove();
+    if (data.error) { addMsg('Hata: ' + data.error, 'error'); return; }
+    addMsg(data.reply || '(boş yanıt)', 'agent');
+    if (data.actions && data.actions.length) addPlan(data);
+  } catch (e) {
+    thinking.remove();
+    addMsg('Bağlantı hatası: ' + e.message, 'error');
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+sendBtn.onclick = send;
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+clearBtn.onclick = async () => {
+  // Clear both what you see AND the backend's memory of this conversation --
+  // otherwise the model would still "remember" a conversation you can no
+  // longer see on screen, which is confusing in the other direction.
+  await fetch('/api/history/clear', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ session_id: sessionId })
+  });
+  messagesEl.innerHTML = '';
+  messagesEl.appendChild(emptyState);
+  emptyState.style.display = 'block';
+};
+</script>
+</body>
+</html>
