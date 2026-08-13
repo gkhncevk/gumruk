@@ -17,4 +17,4 @@ frontend/dist/
 
 # Logs
 *.log
-npm-debug.log*
+npm-debug.log*tools/local-txt-agent/.sessions.json
