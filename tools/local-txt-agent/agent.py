@@ -24,10 +24,27 @@ OLLAMA_URL = f"{OLLAMA_BASE}/api/chat"
 # and change this value (or set the model in the UI).
 DEFAULT_MODEL = "llama3.2:3b"
 
-# Plain-text-ish file types this agent is allowed to see and touch. Keeping
-# this an explicit allowlist (rather than "any file") means a model mistake
-# can never reach outside the kinds of files you actually asked it to manage.
+# Plain-text-ish file types this agent is allowed to see AND manage (rename,
+# write, merge, split, move, delete). Keeping this an explicit allowlist
+# (rather than "any file") means a model mistake can never reach outside the
+# kinds of files you actually asked it to manage.
 SUPPORTED_EXTENSIONS = (".txt", ".md", ".csv")
+
+# Extra file types the agent may READ for context (e.g. to cross-check a
+# project's docs against its actual code) but can never write, rename, move,
+# or delete -- apply_actions()'s safe_new_path() only accepts SUPPORTED_EXTENSIONS,
+# so even if a model mistakenly proposed an action on one of these, it would
+# be rejected before touching disk. This is what lets the agent answer "does
+# this README match what risk.py actually does" without expanding what it's
+# allowed to modify.
+CONTEXT_ONLY_EXTENSIONS = (".py",)
+
+# Files above this size aren't worth showing a small local model in full --
+# a 15,000-row data CSV would eat most of the context window and isn't
+# something the model should be reasoning over qualitatively anyway. Skipped
+# files are still listed by name (with their size) so the user knows they
+# exist, just not previewed.
+MAX_PREVIEW_FILE_SIZE = 200_000  # bytes
 
 # Built with plain concatenation (not one big f-string) because the JSON examples below
 # contain literal { } braces that must NOT be treated as format placeholders.
@@ -36,6 +53,12 @@ SYSTEM_PROMPT = (
     f"({', '.join(SUPPORTED_EXTENSIONS)}) in a folder on their own computer. You do NOT "
     "execute anything yourself -- you only PROPOSE a plan, and a human approves it before "
     "anything happens.\n\n"
+    f"You may also be shown {', '.join(CONTEXT_ONLY_EXTENSIONS)} files from the same folder, "
+    "marked as [READ-ONLY, for context] in the folder listing. These give you background (e.g. "
+    "actual code/config a .md file is supposed to describe) but you can NEVER propose an action "
+    "that writes, renames, moves, or deletes one of them -- only use them to inform what you say "
+    "in \"reply\" or to inform an action on a SUPPORTED file (e.g. \"the README says the threshold "
+    "is 0.15 but risk.py has 0.30\" is a reply, not a write to risk.py).\n\n"
 ) + """You will be given the current contents of a folder (filenames and a short preview of \
 each file's text) and a user instruction in Turkish or English. Respond with STRICT JSON \
 only, no prose outside the JSON, matching this shape:
@@ -90,6 +113,13 @@ Rules:
   that is actually shorter/condensed -- never just the original text copied unchanged, that is
   not a summary).
 - Keep "reply" short -- a couple of sentences, not a report.
+- Files marked [READ-ONLY, for context] (e.g. .py files) may be read and referenced in "reply",
+  but NEVER appear as the "from"/"path"/"into"/"source" of an action -- if the user's instruction
+  would require writing to one of them, explain in "reply" why you can't and propose no action
+  for that file (you may still propose actions on other, editable files in the same request).
+- If a file was listed as skipped for being too large, you were not shown its content -- don't
+  guess what's inside it or propose an action based on assumed content; say in "reply" that you'd
+  need it summarized in smaller pieces first.
 - Output MUST be valid JSON and nothing else.
 
 Example -- summarize without saving (note: no actions, and the reply is a real condensed
@@ -137,35 +167,62 @@ def _extract_json(text):
     return json.loads(match.group(0))
 
 
-def list_folder_preview(folder, max_files=40, preview_chars=4000):
-    """Build a compact description of the folder's supported files for the model."""
+def list_folder_preview(folder, max_files=40, preview_chars=4000, max_file_size=MAX_PREVIEW_FILE_SIZE):
+    """Build a compact description of the folder's files for the model.
+
+    Returns (entries, skipped) where each entry has an "editable" flag
+    (True for SUPPORTED_EXTENSIONS, False for CONTEXT_ONLY_EXTENSIONS) and
+    "skipped" lists (path, size_bytes) for files that matched an allowed
+    extension but were too large to preview in full."""
     entries = []
+    skipped = []
+    all_extensions = SUPPORTED_EXTENSIONS + CONTEXT_ONLY_EXTENSIONS
     if not os.path.isdir(folder):
-        return entries
+        return entries, skipped
     for root, dirs, files in os.walk(folder):
         dirs[:] = [d for d in dirs if not d.startswith(".")]
         for name in sorted(files):
-            if not name.lower().endswith(SUPPORTED_EXTENSIONS):
+            lname = name.lower()
+            if not lname.endswith(all_extensions):
                 continue
             rel = os.path.relpath(os.path.join(root, name), folder)
             full = os.path.join(root, name)
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                size = 0
+            if size > max_file_size:
+                skipped.append((rel, size))
+                continue
             try:
                 with open(full, "r", errors="replace") as f:
                     content = f.read(preview_chars)
             except OSError:
                 content = ""
-            entries.append({"path": rel, "preview": content})
+            entries.append({
+                "path": rel,
+                "preview": content,
+                "editable": lname.endswith(SUPPORTED_EXTENSIONS),
+            })
             if len(entries) >= max_files:
-                return entries
-    return entries
+                return entries, skipped
+    return entries, skipped
 
 
 def propose_plan(folder, user_message, history, model=None):
     model = model or DEFAULT_MODEL
-    files = list_folder_preview(folder)
-    folder_summary = "\n".join(
-        f"- {e['path']}: {e['preview']!r}" for e in files
-    ) or f"(folder is empty or has no {'/'.join(SUPPORTED_EXTENSIONS)} files yet)"
+    files, skipped = list_folder_preview(folder)
+
+    lines = []
+    for e in files:
+        tag = "" if e["editable"] else " [READ-ONLY, for context]"
+        lines.append(f"- {e['path']}{tag}: {e['preview']!r}")
+    for rel, size in skipped:
+        lines.append(f"- {rel}: [skipped, {size:,} bytes -- too large to preview in full]")
+
+    folder_summary = "\n".join(lines) or (
+        f"(folder is empty or has no {'/'.join(SUPPORTED_EXTENSIONS + CONTEXT_ONLY_EXTENSIONS)} files yet)"
+    )
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history)

@@ -6,11 +6,22 @@ doğal dilde bir klasördeki `.txt`, `.md` ve `.csv` dosyalarıyla ne yapmak
 istediğini söylersin (yeniden adlandır, içeriği düzenle, birleştir, böl,
 klasörlere ayır), agent bir plan önerir, sen onaylarsın, ancak öyle uygulanır.
 
-Agent sadece bu üç dosya türünü görür ve dokunabilir — `agent.py` içindeki
-`SUPPORTED_EXTENSIONS` listesi bunu belirliyor. Başka bir dosya türüne
-(`.py`, `.pdf`, `.png` vb.) yazmaya/yeniden adlandırmaya çalışan bir işlem
-önerilse bile, uygulama aşamasında otomatik reddedilir — model bir hata
-yapsa bile bu tür dosyalara asla dokunamaz.
+Agent sadece bu üç dosya türünü **değiştirebilir** (yeniden adlandırma, yazma,
+birleştirme, bölme, taşıma, silme) — `agent.py` içindeki `SUPPORTED_EXTENSIONS`
+listesi bunu belirliyor. Başka bir dosya türüne (`.pdf`, `.png` vb.)
+yazmaya/yeniden adlandırmaya çalışan bir işlem önerilse bile, uygulama
+aşamasında otomatik reddedilir — model bir hata yapsa bile bu tür dosyalara
+asla dokunamaz.
+
+Ayrıca `.py` dosyalarını **salt-okunur bağlam** olarak görebilir (`CONTEXT_ONLY_EXTENSIONS`)
+— bu, "README'deki şu değer koddakiyle uyumlu mu" gibi soruları cevaplayabilmesi
+için var (bkz. aşağıdaki "Gerçek kullanım örneği"). Ama bu dosyalara **asla**
+yazamaz/yeniden adlandıramaz/silemez — `apply_actions`'daki `safe_new_path`
+kontrolü sadece `SUPPORTED_EXTENSIONS`'ı kabul ediyor, `.py` bunun dışında.
+
+15.7k satırlık bir CSV gibi çok büyük dosyalar (`MAX_PREVIEW_FILE_SIZE`,
+varsayılan 200KB) otomatik atlanır — küçük yerel modeli boğmasın diye. Atlanan
+dosyalar isim/boyutuyla listede görünür, sadece içeriği modele gösterilmez.
 
 Hiçbir dosya, senin onayın olmadan değişmez.
 
@@ -75,6 +86,23 @@ Sonra tarayıcında **http://localhost:5001** adresini aç.
 5. "Seçilenleri uygula" dediğinde değişiklikler gerçekten diskte yapılır.
 6. "Sohbeti temizle" ekrandaki geçmişi temizler (dosyalarına dokunmaz).
 
+## Gerçek kullanım örneği — gümrük projesinde dokümantasyon kontrolü
+
+Bu agent, `../..` (yani `gumruk/` reposunun kökü) gibi bir klasöre yöneltilip
+dokümantasyon-kod tutarsızlığı yakalamak için kullanılabilir:
+
+1. `python app.py`, tarayıcıda `http://localhost:5001` aç.
+2. Klasör olarak `gumruk` reposunun kökünü (ya da sadece `README.md` +
+   `ai-service/README.md` + `ai-service/app/risk.py`'yi içeren küçük bir alt
+   klasörü) seç.
+3. Şunu yaz: *"README.md ve ai-service/README.md'deki risk eşiği (CONFIDENCE_THRESHOLD)
+   ile ilgili ifadeler, risk.py'deki gerçek değerle tutarlı mı?"*
+
+Agent artık `risk.py`'yi salt-okunur olarak görebildiği için (Faz B öncesi
+göremiyordu), gerçek kod değerini `.md` dosyalarındaki iddialarla karşılaştırıp
+bir tutarsızlık varsa `reply` alanında bunu söyleyebilir — hiçbir dosyaya
+dokunmadan, sadece bir bulgu raporu olarak.
+
 ## Nasıl çalışıyor (kısaca)
 
 - `agent.py` klasördeki dosyaların bir önizlemesini alır, modele
@@ -93,7 +121,9 @@ Sonra tarayıcında **http://localhost:5001** adresini aç.
 
 ## Geliştirme fikirleri (istersen sonra ekleriz)
 
-- Farklı dosya türleri (`.md`, `.csv`) desteği
+- [x] `.py` dosyalarını salt-okunur bağlam olarak görme (dokümantasyon-kod
+      tutarlılık kontrolü için)
+- [x] Çok büyük dosyaları (>200KB) otomatik atlama
 - "Geri al" düğmesi (son işlemi tersine çevirme)
 - Ücretsiz bulut API'ye (Groq/Gemini) geçiş seçeneği — internetin varken
   daha güçlü bir modelle çalışmak istersen `agent.py` içindeki
@@ -101,3 +131,6 @@ Sonra tarayıcında **http://localhost:5001** adresini aç.
   yazılabilir.
 - Model bir işlemi yanlış önerirse, tekrar mesaj yazıp düzeltmesini
   isteyebilirsin — konuşma geçmişi (son 20 mesaj) hatırlanıyor.
+- `CONTEXT_ONLY_EXTENSIONS`'ı `.js`/`.json` gibi başka dillere de genişletmek
+  — şu an sadece `.py` var, gümrük projesinin Node.js/React tarafını
+  kontrol edemiyor.

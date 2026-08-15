@@ -127,11 +127,22 @@ Frontend kaynağını değiştirirsen tekrar build etmen gerekir: `cd frontend &
 │   ├── app/              # retrieval.py, risk.py, rag.py, feedback.py, main.py, schemas.py
 │   ├── data/              # BTB kararları, resmi kod listesi (tüm fasıllar), kural kütüphanesi, feedback log
 │   ├── scripts/           # parse_tarife_cetveli.py - resmi Tarife Cetveli Excel'lerini parse eden script
+│   ├── tests/              # pytest - risk.py, rag.py, retrieval.py testleri
 │   ├── evaluate.py         # leave-one-out değerlendirme scripti
+│   ├── ablation.py         # TF-IDF/embedding/hibrit arama konfigürasyonu karşılaştırması
 │   ├── DEGERLENDIRME_RAPORU.md
+│   ├── ABLATION_RAPORU.md
 │   └── README.md          # ai-service'e özel derinlemesine teknik dokümantasyon
 ├── backend/              # Node.js/Express - proxy + statik dosya sunumu
-└── frontend/             # React (Vite) - kullanıcı arayüzü
+├── frontend/             # React (Vite) - kullanıcı arayüzü
+├── tools/
+│   └── local-txt-agent/  # Geliştirme aracı - yerel (Ollama) bir agent; dokümantasyon
+│                          # ile kodun tutarlılığını kontrol etmek gibi işler için
+│                          # kullanılıyor (bkz. kendi README'si). Ana sisteme dahil
+│                          # değil, sadece geliştirme sırasında elle çalıştırılan
+│                          # bağımsız bir araç.
+├── .github/workflows/    # CI - her push'ta testler + build otomatik çalışır
+└── docker-compose.yml    # Tek komutla kurulum (bkz. bölüm 7)
 ```
 
 ## 10. Bilinen sınırlar (dürüstçe)
