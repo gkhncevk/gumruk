@@ -1,5 +1,5 @@
 # Python
-ai-service/venv/
+venv/
 __pycache__/
 *.pyc
 ai-service/data/.embedding_cache/
@@ -17,4 +17,11 @@ frontend/dist/
 
 # Logs
 *.log
-npm-debug.log*tools/local-txt-agent/.sessions.json
+npm-debug.log*
+
+# .NET
+backend-dotnet/bin/
+backend-dotnet/obj/
+
+# local-txt-agent
+tools/local-txt-agent/.sessions.json

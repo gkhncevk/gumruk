@@ -19,3 +19,23 @@ services:
     depends_on:
       - ai-service
     restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      # Sadece yerel gelistirme icin - gercek deploy'da bu degerler
+      # env dosyasindan/secret'tan gelmeli, buraya hardcode edilmemeli.
+      - POSTGRES_DB=gumruk
+      - POSTGRES_USER=gumruk
+      - POSTGRES_PASSWORD=gumruk_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # backend-dotnet: GumrukApi (.NET) hazir olunca buraya eklenecek -
+  # su an sadece iskelet var, henuz calisan bir servis degil.
+
+volumes:
+  postgres_data:
