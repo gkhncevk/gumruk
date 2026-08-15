@@ -6,7 +6,7 @@ Her kayit sirayla veri setinden cikarilip, kalan verilerle o kaydin GTIP pozisyo
 ## Sonuclar
 
 - **Test seti buyuklugu:** 41 (kucuk bir ornek, guven araligi genis - temkinli yorumlanmali)
-- **Model Top-1 dogruluk:** 73.2% (30/41)
+- **Model Top-1 dogruluk:** 73.2% (30/41) — %95 Wilson güven aralığı: 58.1% - 84.3%
 - **Model Top-3 dogruluk:** 75.6% (31/41)
 - **Cogunluk baseline'i:** 65.9% (her zaman '6307' tahmin etseydik)
 - **Rastgele baseline:** 11.0%
@@ -18,7 +18,7 @@ Veri setindeki 7 pozisyonun (['6113', '6116', '6210', '6211', '6212', '6302', '6
 
 Asil anlamli sinyal, yeterli ornegi olan pozisyonlardaki performans:
 
-- **Yeterli ornekli pozisyonlar (n>=2):** 30/34 = 88.2% dogruluk
+- **Yeterli ornekli pozisyonlar (n>=2):** 30/34 = 88.2% dogruluk — %95 Wilson güven aralığı: 73.4% - 95.3%
   - 6307: 24/27 = 88.9%
   - 6406: 6/7 = 85.7%
 
