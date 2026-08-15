@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 COPY data/ ./data/
 COPY evaluate.py .
+COPY ablation.py .
 
 EXPOSE 8000
 
