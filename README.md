@@ -51,15 +51,23 @@ Bu proje boyunca alınan her mimari karar bilinçli bir trade-off'un sonucu — 
 
 `ai-service/evaluate.py`, her BTB kararını sırayla veri setinden çıkarıp "hiç görülmemiş yeni ürün" gibi test ediyor (tam rapor: `ai-service/DEGERLENDIRME_RAPORU.md`, artık %95 Wilson güven aralığıyla birlikte — n=41 gibi küçük bir örneklemde tek bir yüzde rakamı yanıltıcı olabileceği için).
 
-**Ablation çalışması:** Hibrit ağırlığın (0.7 TF-IDF / 0.3 embedding) neden bu şekilde seçildiği artık sadece bir anlatı değil, ölçülmüş bir karşılaştırma — `ai-service/ablation.py`, aynı leave-one-out yöntemini saf TF-IDF, saf embedding ve hibrit konfigürasyonlarının üçünde de çalıştırıp `ai-service/ABLATION_RAPORU.md`'ye yazıyor.
-
 | Metrik | Değer |
 |---|---|
-| Genel Top-1 doğruluk | %73.2 (30/41) |
+| Genel Top-1 doğruluk | %73.2 (30/41) — %95 Wilson güven aralığı: %58.1 - %84.3 |
 | Genel Top-3 doğruluk | %75.6 (31/41) |
 | Çoğunluk baseline'ı | %65.9 |
-| **Yeterli emsali olan pozisyonlarda (n≥2) doğruluk** | **%88.2 (30/34)** |
+| **Yeterli emsali olan pozisyonlarda (n≥2) doğruluk** | **%88.2 (30/34) — %95 GA: %73.4 - %95.3** |
 | Tek örnekli pozisyonlarda | 0/7 (yapısal olarak beklenen, aşağıda açıklanıyor) |
+
+**Ablation çalışması — hibrit ağırlığın (0.7/0.3) gerekçesi artık ölçülmüş bir sonuç:** `ai-service/ablation.py`, aynı leave-one-out yöntemini üç konfigürasyonda çalıştırıp `ai-service/ABLATION_RAPORU.md`'ye yazıyor:
+
+| Konfigürasyon | Top-1 | Top-3 | Yeterli veri (n≥2) |
+|---|---|---|---|
+| Sadece TF-IDF | %73.2 | %78.0 | %88.2 |
+| Sadece semantik embedding | %63.4 | %68.3 | %76.5 |
+| Hibrit (üretimde kullanılan, 0.7/0.3) | %73.2 | %75.6 | %88.2 |
+
+**Dürüst okuma:** Bu spesifik test setinde (41 BTB kararı, hepsi BTB'nin kendi resmi/teknik diliyle yazılı) saf TF-IDF, hibrit konfigürasyona göre Top-3'te birkaç puan **daha iyi** çıkıyor (%78.0 vs %75.6) — bu beklenmedik değil, `retrieval.py`'nin başındaki Faz 8 notunun zaten önceden açıkladığı şey: bu değerlendirme seti TF-IDF'in en güçlü olduğu senaryo (resmi/teknik dil), embedding'in asıl faydası ise günlük dildeki sorgularda ortaya çıkıyor — ki bunu `evaluate.py` hiç ölçmüyor (BTB kararları günlük dille yazılmıyor). Yani hibrit yaklaşım bu dar metrikte küçük bir bedel ödüyor, ama ölçülemeyen bir eksende (gerçek kullanıcıların yazacağı günlük ifadeler) fayda sağlıyor — bu trade-off'u gizlemek yerine tabloyla birlikte açıkça gösteriyoruz.
 
 **Önemli bulgu:** Veri setindeki 7 pozisyonun sadece 1'er BTB kararı var. Leave-one-out o tek kararı çıkarınca geriye hiç emsal kalmıyor — bu düşük performans model kalitesizliği değil, **veri azlığının yapısal ve kanıtlanmış bir sonucu** (BTB arama sisteminde bu pozisyonlar için başka kayıt olmadığı doğrulandı). Bu ayrımı yapmadan tek bir doğruluk rakamı vermek yanıltıcı olurdu; segmentli analiz gerçek performansı gösteriyor.
 
