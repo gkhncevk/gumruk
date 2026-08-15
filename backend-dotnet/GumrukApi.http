@@ -1,0 +1,6 @@
+@GumrukApi_HostAddress = http://localhost:5249
+
+GET {{GumrukApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
