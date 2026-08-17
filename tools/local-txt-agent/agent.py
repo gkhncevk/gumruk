@@ -54,6 +54,20 @@ CONTEXT_ONLY_EXTENSIONS = (
     ".html", ".css",                           # markup/styling
 )
 
+# Directories that are never worth walking into: dependency/build output
+# folders. These aren't hidden (don't start with ".") so the old dot-only
+# filter let os.walk descend into e.g. a Next.js project's node_modules --
+# hundreds of packages' worth of .json/.js files, which alone can blow a
+# small local model's context window (observed: a single node_modules
+# pulled the folder summary past 22k tokens, truncating out the actual
+# project files the user asked about). Keeping this as an explicit set
+# (rather than trying to detect "is this a dependency folder") means it's
+# easy to extend as new project types get added to the repo.
+EXCLUDED_DIR_NAMES = {
+    "node_modules", "bin", "obj", "dist", "build", "__pycache__",
+    ".next", "venv", ".venv", ".embedding_cache",
+}
+
 # Files above this size aren't worth showing a small local model in full --
 # a 15,000-row data CSV would eat most of the context window and isn't
 # something the model should be reasoning over qualitatively anyway. Skipped
@@ -195,7 +209,7 @@ def list_folder_preview(folder, max_files=40, preview_chars=4000, max_file_size=
     if not os.path.isdir(folder):
         return entries, skipped
     for root, dirs, files in os.walk(folder):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in EXCLUDED_DIR_NAMES]
         for name in sorted(files):
             lname = name.lower()
             if not lname.endswith(all_extensions):
