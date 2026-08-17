@@ -1,4 +1,5 @@
 using GumrukApi.Data;
+using GumrukApi.Models;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,6 +29,21 @@ app.MapGet("/api/kurallar", async (GumrukDbContext db) =>
 {
     var kurallar = await db.KuralKutuphaneleri.ToListAsync();
     return kurallar;
+});
+
+app.MapPost("/api/analiz", async (AnalizIstek istek, GumrukDbContext db) =>
+{
+    var kayit = new AnalizKaydi
+    {
+        EsyaTanimi = istek.EsyaTanimi,
+        BeyanEdilenGtip = istek.BeyanEdilenGtip,
+        OnerilenGtip = istek.OnerilenGtip,
+        RiskSeviyesi = istek.RiskSeviyesi,
+        BenzerlikSkoru = istek.BenzerlikSkoru,
+    };
+    db.AnalizKayitlari.Add(kayit);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/analiz/{kayit.Id}", kayit);
 });
 
 var summaries = new[]
