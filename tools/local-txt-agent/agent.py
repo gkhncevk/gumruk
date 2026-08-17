@@ -37,7 +37,22 @@ SUPPORTED_EXTENSIONS = (".txt", ".md", ".csv")
 # be rejected before touching disk. This is what lets the agent answer "does
 # this README match what risk.py actually does" without expanding what it's
 # allowed to modify.
-CONTEXT_ONLY_EXTENSIONS = (".py",)
+#
+# Deliberately kept read-only even though these are "just text" underneath:
+# unlike .txt/.md/.csv (free prose / tabular data, where a bad edit at worst
+# garbles a note or a row), these are syntactically fragile -- a small local
+# model rewriting a .cs file or an appsettings.json can break a build or a
+# running config in a way that's much harder to notice and undo. Source code
+# and structured config stay read-only until there's a stronger case (e.g. a
+# much better model, or per-file human review before every code write) for
+# letting the agent touch them directly.
+CONTEXT_ONLY_EXTENSIONS = (
+    ".py",                                    # Python (ai-service)
+    ".cs",                                    # C# (backend-dotnet)
+    ".ts", ".tsx", ".js", ".jsx",              # TypeScript/JavaScript (frontend, frontend-nextjs)
+    ".json", ".yaml", ".yml",                  # config (appsettings.json, package.json, docker-compose.yml, ...)
+    ".html", ".css",                           # markup/styling
+)
 
 # Files above this size aren't worth showing a small local model in full --
 # a 15,000-row data CSV would eat most of the context window and isn't

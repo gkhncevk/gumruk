@@ -13,11 +13,18 @@ yazmaya/yeniden adlandırmaya çalışan bir işlem önerilse bile, uygulama
 aşamasında otomatik reddedilir — model bir hata yapsa bile bu tür dosyalara
 asla dokunamaz.
 
-Ayrıca `.py` dosyalarını **salt-okunur bağlam** olarak görebilir (`CONTEXT_ONLY_EXTENSIONS`)
-— bu, "README'deki şu değer koddakiyle uyumlu mu" gibi soruları cevaplayabilmesi
-için var (bkz. aşağıdaki "Gerçek kullanım örneği"). Ama bu dosyalara **asla**
-yazamaz/yeniden adlandıramaz/silemez — `apply_actions`'daki `safe_new_path`
-kontrolü sadece `SUPPORTED_EXTENSIONS`'ı kabul ediyor, `.py` bunun dışında.
+Ayrıca kod/config dosyalarını (`.py`, `.cs`, `.ts`/`.tsx`, `.js`/`.jsx`, `.json`,
+`.yaml`/`.yml`, `.html`, `.css`) **salt-okunur bağlam** olarak görebilir
+(`CONTEXT_ONLY_EXTENSIONS`) — gümrük projesinin artık üç dilde (Python, C#,
+TypeScript) yazılmış olması bunu gerektirdi. Bu, "README'deki şu değer
+koddakiyle uyumlu mu" gibi soruları cevaplayabilmesi için var (bkz. aşağıdaki
+"Gerçek kullanım örneği"). Ama bu dosyalara **asla** yazamaz/yeniden
+adlandıramaz/silemez — `apply_actions`'daki `safe_new_path` kontrolü sadece
+`SUPPORTED_EXTENSIONS`'ı (txt/md/csv) kabul ediyor. Bilinçli bir tercih: bu
+dosyalar sözdizimsel olarak kırılgan (yanlış bir düzenleme derlemeyi/config'i
+bozabilir), `.txt`/`.md`/`.csv`'nin aksine — o yüzden hepsi salt-okunur
+kalıyor, en azından küçük yerel modeller için şimdilik güvenli tarafta durmak
+adına.
 
 15.7k satırlık bir CSV gibi çok büyük dosyalar (`MAX_PREVIEW_FILE_SIZE`,
 varsayılan 200KB) otomatik atlanır — küçük yerel modeli boğmasın diye. Atlanan
@@ -124,6 +131,14 @@ dokunmadan, sadece bir bulgu raporu olarak.
 - [x] `.py` dosyalarını salt-okunur bağlam olarak görme (dokümantasyon-kod
       tutarlılık kontrolü için)
 - [x] Çok büyük dosyaları (>200KB) otomatik atlama
+- [x] `CONTEXT_ONLY_EXTENSIONS`'ı `.cs`/`.ts`/`.tsx`/`.js`/`.jsx`/`.json`/`.yaml`/`.yml`/`.html`/`.css`'e
+      genişletmek — artık gümrük projesinin .NET (`backend-dotnet/`) ve
+      Next.js (`frontend-nextjs/`) tarafını da görebiliyor
+- [ ] Word (`.docx`) desteği — bu, düz metin değil, ZIP içinde XML barındıran
+      yapılandırılmış bir format. `python-docx` kütüphanesi ve düz metinden
+      farklı bir okuma/yazma kod yolu gerektiriyor (paragraf yapısını koruma).
+      Ayrı bir adımda ele alınacak, salt "SUPPORTED_EXTENSIONS'a ekle" kadar
+      basit değil.
 - "Geri al" düğmesi (son işlemi tersine çevirme)
 - Ücretsiz bulut API'ye (Groq/Gemini) geçiş seçeneği — internetin varken
   daha güçlü bir modelle çalışmak istersen `agent.py` içindeki
@@ -131,6 +146,3 @@ dokunmadan, sadece bir bulgu raporu olarak.
   yazılabilir.
 - Model bir işlemi yanlış önerirse, tekrar mesaj yazıp düzeltmesini
   isteyebilirsin — konuşma geçmişi (son 20 mesaj) hatırlanıyor.
-- `CONTEXT_ONLY_EXTENSIONS`'ı `.js`/`.json` gibi başka dillere de genişletmek
-  — şu an sadece `.py` var, gümrük projesinin Node.js/React tarafını
-  kontrol edemiyor.
