@@ -160,6 +160,12 @@ kampanya bütçesi ve yeni reklam görselleri. Katılımcılar: Gökhan, Lara, E
 """
 
 
+OLLAMA_TIMEOUT_SECONDS = 300  # local 7B/14B models on a loaded machine can take
+# well over 120s for a large prompt - 120 was too tight and produced spurious
+# "Read timed out" errors on real hardware under real load (Docker + dotnet +
+# npm all running at once), not a sign anything was actually broken.
+
+
 def _ollama_chat(messages, model):
     resp = requests.post(
         OLLAMA_URL,
@@ -170,7 +176,7 @@ def _ollama_chat(messages, model):
             "format": "json",
             "options": {"temperature": 0.2},
         },
-        timeout=120,
+        timeout=OLLAMA_TIMEOUT_SECONDS,
     )
     resp.raise_for_status()
     data = resp.json()
