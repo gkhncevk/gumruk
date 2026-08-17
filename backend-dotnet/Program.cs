@@ -17,8 +17,18 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
-
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<GumrukDbContext>();
+    await KuralSeed.CalistirAsync(db, app.Environment.ContentRootPath);
+}
 app.UseHttpsRedirection();
+
+app.MapGet("/api/kurallar", async (GumrukDbContext db) =>
+{
+    var kurallar = await db.KuralKutuphaneleri.ToListAsync();
+    return kurallar;
+});
 
 var summaries = new[]
 {
