@@ -11,6 +11,16 @@ builder.Services.AddOpenApi();
 builder.Services.AddDbContext<GumrukDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("GumrukDb")));
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("NextjsDev", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000", "http://localhost:3001")
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});    
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -24,6 +34,8 @@ using (var scope = app.Services.CreateScope())
     await KuralSeed.CalistirAsync(db, app.Environment.ContentRootPath);
 }
 app.UseHttpsRedirection();
+
+app.UseCors("NextjsDev");
 
 app.MapGet("/api/kurallar", async (GumrukDbContext db) =>
 {
