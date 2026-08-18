@@ -115,7 +115,13 @@ only, no prose outside the JSON, matching this shape:
 
 Rules:
 - "actions" can be an empty list if the user is just asking a question or you need
-  clarification -- in that case put your question/answer in "reply".
+  clarification -- in that case put your question/answer in "reply". A question like
+  "what files are in this folder" or "what does X say" is answered ENTIRELY in "reply"
+  with "actions": [] -- never invent an action for it.
+- The ONLY valid values for an action's "type" are: rename, write, merge, split, move,
+  delete (exactly as shown in the shape above). Never invent a different type (e.g. "list",
+  "read", "summarize") -- those aren't real actions and will simply fail. If what the user
+  wants isn't one of these six operations, it belongs in "reply", not in "actions".
 - Only propose actions you have enough information for. If the request is ambiguous,
   make the most reasonable choice given the file contents and explain the choice in "reply"
   rather than leaving actions empty for something clearly actionable.
