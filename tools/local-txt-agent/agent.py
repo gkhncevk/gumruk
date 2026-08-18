@@ -68,6 +68,15 @@ EXCLUDED_DIR_NAMES = {
     ".next", "venv", ".venv", ".embedding_cache",
 }
 
+# Auto-generated lock files: excluded by exact name regardless of extension
+# or size. Even a short preview of one of these is pure noise for a model -
+# they're dependency version pins, not something anyone (human or LLM)
+# reads for meaning. Keeping this separate from EXCLUDED_DIR_NAMES because
+# it's a filename check, not a directory-to-skip check.
+EXCLUDED_FILE_NAMES = {
+    "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml",
+}
+
 # Files above this size aren't worth showing a small local model in full --
 # a 15,000-row data CSV would eat most of the context window and isn't
 # something the model should be reasoning over qualitatively anyway. Skipped
@@ -166,6 +175,17 @@ OLLAMA_TIMEOUT_SECONDS = 300  # local 7B/14B models on a loaded machine can take
 # npm all running at once), not a sign anything was actually broken.
 
 
+# Ollama serves every model with a 2048-token context window by default,
+# regardless of how large a window the model itself actually supports -- this
+# was the real cause of the empty-response bug: logs showed
+# "limit=2050 prompt=22574", i.e. Ollama silently truncating the prompt down
+# to its default window before the model ever saw most of it, not the model
+# failing to answer. Setting num_ctx explicitly is what actually fixes that;
+# trimming the prompt (below) just keeps typical prompts comfortably inside
+# this budget so responses stay fast.
+OLLAMA_NUM_CTX = 8192
+
+
 def _ollama_chat(messages, model):
     resp = requests.post(
         OLLAMA_URL,
@@ -174,7 +194,7 @@ def _ollama_chat(messages, model):
             "messages": messages,
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0.2},
+            "options": {"temperature": 0.2, "num_ctx": OLLAMA_NUM_CTX},
         },
         timeout=OLLAMA_TIMEOUT_SECONDS,
     )
@@ -202,7 +222,13 @@ def _extract_json(text):
     return json.loads(match.group(0))
 
 
-def list_folder_preview(folder, max_files=40, preview_chars=4000, max_file_size=MAX_PREVIEW_FILE_SIZE):
+# Lowered from the original 40 files / 4000 chars each once CONTEXT_ONLY_EXTENSIONS
+# grew to 10 extensions across a multi-language repo: worst case is now
+# 20 * 1500 = 30,000 chars (~7-8K tokens) of preview text, which -- together
+# with OLLAMA_NUM_CTX above -- comfortably fits with room for the system
+# prompt and conversation history, instead of silently exceeding Ollama's
+# default 2048-token window like the old 40 * 4000 (~40K token) worst case did.
+def list_folder_preview(folder, max_files=20, preview_chars=1500, max_file_size=MAX_PREVIEW_FILE_SIZE):
     """Build a compact description of the folder's files for the model.
 
     Returns (entries, skipped) where each entry has an "editable" flag
@@ -217,6 +243,8 @@ def list_folder_preview(folder, max_files=40, preview_chars=4000, max_file_size=
     for root, dirs, files in os.walk(folder):
         dirs[:] = [d for d in dirs if not d.startswith(".") and d not in EXCLUDED_DIR_NAMES]
         for name in sorted(files):
+            if name in EXCLUDED_FILE_NAMES:
+                continue
             lname = name.lower()
             if not lname.endswith(all_extensions):
                 continue
