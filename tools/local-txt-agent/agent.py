@@ -303,6 +303,11 @@ def propose_plan(folder, user_message, history, model=None):
     )
 
     raw = _ollama_chat(messages, model)
+    # Temporary diagnostic: print the model's raw JSON to the terminal running
+    # `python app.py` so an empty-looking reply in the UI can be traced back to
+    # what the model actually returned (missing "reply" key vs. an empty string
+    # vs. a malformed shape), instead of guessing blind.
+    print(f"[agent] raw model output:\n{raw}\n")
     plan = _extract_json(raw)
     plan.setdefault("reply", "")
     plan.setdefault("actions", [])
