@@ -75,6 +75,9 @@ EXCLUDED_DIR_NAMES = {
 # it's a filename check, not a directory-to-skip check.
 EXCLUDED_FILE_NAMES = {
     "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml",
+    ".sessions.json",  # this agent's own chat-history file -- irrelevant as
+    # cross-check context, and would otherwise show up whenever it's asked to
+    # scan its own tools/local-txt-agent/ directory.
 }
 
 # Files above this size aren't worth showing a small local model in full --
