@@ -6,16 +6,29 @@ doğal dilde bir klasördeki `.txt`, `.md` ve `.csv` dosyalarıyla ne yapmak
 istediğini söylersin (yeniden adlandır, içeriği düzenle, birleştir, böl,
 klasörlere ayır), agent bir plan önerir, sen onaylarsın, ancak öyle uygulanır.
 
-Agent iki tür dosyayı **değiştirebilir** (yeniden adlandırma, yazma,
-birleştirme, bölme, taşıma, silme) — `agent.py` içindeki `WRITABLE_EXTENSIONS`
-listesi (`SUPPORTED_EXTENSIONS` + `CONFIG_WRITABLE_EXTENSIONS`) bunu belirliyor:
+Agent iki tür dosyayı **değiştirebilir** (yeniden adlandırma, yazma, hedefli
+değişiklik, birleştirme, bölme, taşıma, silme) — `agent.py` içindeki
+`WRITABLE_EXTENSIONS` listesi (`SUPPORTED_EXTENSIONS` + `CONFIG_WRITABLE_EXTENSIONS`)
+bunu belirliyor:
 
 - **Düz metin** (`SUPPORTED_EXTENSIONS`): `.txt`, `.md`, `.csv`
 - **Yapılandırılmış config** (`CONFIG_WRITABLE_EXTENSIONS`): `.json`, `.yaml`, `.yml`
-  — bunlar için her "yazma" işlemi, uygulamadan önce eski/yeni içerik arasında
-  satır satır bir **diff** gösterir (bkz. `agent.diff_for_write`), sadece yeni
-  içeriğin tamamını göstermek yerine — yanlış bir düzenlemeyi fark etmek çok
-  daha kolay.
+  — bunlar için her "yazma"/"hedefli değişiklik" işlemi, uygulamadan önce
+  eski/yeni içerik arasında satır satır bir **diff** gösterir (bkz.
+  `agent.diff_for_action`), sadece yeni içeriğin tamamını göstermek yerine —
+  yanlış bir düzenlemeyi fark etmek çok daha kolay.
+
+İki değişiklik türü var: **`write`** dosyanın tamamını yeniden yazar (yeni
+dosya oluştururken ya da içeriğin çoğu değişiyorsa uygun), **`replace`** ise
+sadece belirttiğin `find` metnini `replace` ile değiştirir (`agent.compute_replace`)
+— dosyanın geri kalanına asla dokunmaz. Küçük, tek-satırlık değişikliklerde
+(örn. "portu 5432'den 5433'e değiştir") sistem promptu modele `replace`'i
+tercih etmesini söylüyor, çünkü `write` dosyanın tamamını "hafızasından"
+yeniden ürettiği için küçük değişikliklerde bile alakasız satırları
+(yorumlar, boşluklar) fark ettirmeden değiştirebiliyor — bu gerçekten
+gözlemlendi (bkz. aşağıdaki not). `replace`, `find` metni dosyada birebir ve
+**tam olarak bir kez** eşleşmezse (hiç yoksa ya da birden fazla yerde
+geçiyorsa) işlemi reddeder — belirsiz bir eşleşmeyi asla tahmin etmez.
 
 Başka bir dosya türüne (`.pdf`, `.png` vb.) yazmaya/yeniden adlandırmaya
 çalışan bir işlem önerilse bile, uygulama aşamasında otomatik reddedilir —
@@ -145,6 +158,14 @@ dokunmadan, sadece bir bulgu raporu olarak.
 - [x] `.json`/`.yaml`/`.yml` config dosyalarına yazma izni (diff önizlemesiyle,
       `CONFIG_WRITABLE_EXTENSIONS`) — kod dosyalarına yazma iznine kademeli
       ilk adım
+- [x] Hedefli `replace` eylem türü — canlı kullanımda gözlemlendi: diff
+      önizlemesi eklendikten hemen sonra, "SADECE portu değiştir, başka
+      hiçbir satıra dokunma" gibi açık bir talimata rağmen model `write` ile
+      dosyanın tamamını yeniden yazarken alakasız bir yorum satırındaki
+      Türkçe karakterleri de "düzeltti". `find`/`replace` çiftiyle çalışan ve
+      `find` dosyada tam olarak bir kez eşleşmezse reddeden `replace` eylemi,
+      bu sınıf hatayı yapısal olarak imkansız hale getiriyor (bkz.
+      `agent.compute_replace`) — modele "dikkatli ol" demek yerine.
 - [ ] Gerçek kaynak koduna (`.py`/`.cs`/`.ts`) yazma izni — config tarafı
       kendini kanıtladıktan sonra değerlendirilecek, muhtemelen ek bir
       güvenlik katmanıyla (örn. her dosya türü için ayrı onay adımı)

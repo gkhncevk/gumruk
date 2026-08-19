@@ -327,6 +327,9 @@ function actionLabel(a) {
     case 'write':
       if (a.diff) return `içeriği güncelle: ${escapeHtml(a.path)} — değişiklik (diff):` + diffPreview(a.diff);
       return `içeriği güncelle: ${escapeHtml(a.path)} — yeni içerik önizlemesi:` + contentPreview(a.content, 600);
+    case 'replace':
+      if (a.diff) return `hedefli değişiklik: ${escapeHtml(a.path)} — değişiklik (diff):` + diffPreview(a.diff);
+      return `hedefli değişiklik: ${escapeHtml(a.path)} — "${escapeHtml(a.find)}" yerine "${escapeHtml(a.replace)}"`;
     case 'merge': return `birleştir: ${(a.sources||[]).map(escapeHtml).join(', ')} → ${escapeHtml(a.into)}`;
     case 'split': return `böl: ${escapeHtml(a.source)} → ${(a.parts||[]).map(p=>escapeHtml(p.name)).join(', ')}`;
     case 'delete': return `sil: ${escapeHtml(a.path)}`;

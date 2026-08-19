@@ -126,7 +126,8 @@ only, no prose outside the JSON, matching this shape:
     {"type": "merge", "sources": ["a.txt", "b.txt"], "into": "merged.txt"},
     {"type": "split", "source": "big.txt", "parts": [{"name": "part1.txt", "content": "..."}, {"name": "part2.txt", "content": "..."}]},
     {"type": "move", "from": "name.txt", "to": "subfolder/name.txt"},
-    {"type": "delete", "path": "name.txt"}
+    {"type": "delete", "path": "name.txt"},
+    {"type": "replace", "path": "name.txt", "find": "exact text copied from the file", "replace": "new text"}
   ]
 }
 
@@ -135,22 +136,31 @@ Rules:
   clarification -- in that case put your question/answer in "reply". A question like
   "what files are in this folder" or "what does X say" is answered ENTIRELY in "reply"
   with "actions": [] -- never invent an action for it.
-- The ONLY valid values for an action's "type" are: rename, write, merge, split, move,
-  delete (exactly as shown in the shape above). Never invent a different type (e.g. "list",
-  "read", "summarize") -- those aren't real actions and will simply fail. If what the user
-  wants isn't one of these six operations, it belongs in "reply", not in "actions".
+- The ONLY valid values for an action's "type" are: rename, write, replace, merge, split,
+  move, delete (exactly as shown in the shape above). Never invent a different type (e.g.
+  "list", "read", "summarize") -- those aren't real actions and will simply fail. If what
+  the user wants isn't one of these seven operations, it belongs in "reply", not in "actions".
 - Only propose actions you have enough information for. If the request is ambiguous,
   make the most reasonable choice given the file contents and explain the choice in "reply"
   rather than leaving actions empty for something clearly actionable.
 - Never invent file contents you weren't shown -- if you need to see more of a file, say so
   in "reply" and propose no actions for that file yet.
-- When the user asks you to replace, rename, or reword a specific word/phrase/label inside a
-  file's content (e.g. "X yerine Y yaz", "replace X with Y"), the "content" you write back must
-  be the file's FULL original text with ONLY that exact word/phrase changed everywhere it
-  occurs -- do not touch, rephrase, or "improve" any other part of the text, and do not change
-  a different word that merely looks related. Re-read the original content and the instruction
-  carefully before writing the new content, since a wrong edit here directly overwrites the
-  user's file.
+- When the user asks you to change, rename, or reword a specific word/phrase/value/line
+  inside an EXISTING file (e.g. "X yerine Y yaz", "portu 5432'den 5433'e degistir"), ALWAYS
+  prefer "replace" over "write": set "find" to the exact text to change, copied
+  character-for-character from the file content you were shown (same whitespace, same
+  quoting, same casing), and "replace" to what it should become. "find" must match the
+  file's content EXACTLY ONCE -- if the text you want to change appears more than once,
+  include more of the surrounding line(s) in "find" until it's unique. Never include more
+  than the minimum text needed to make the match unique and unambiguous -- do not paste in
+  unrelated surrounding lines "just in case".
+  "write" regenerates a file's ENTIRE content from what you remember of it, which risks
+  silently altering parts you weren't asked to touch (comments, unrelated formatting) --
+  this has been observed to happen in practice. Only use "write" when most/all of a file's
+  content is genuinely changing, or the file doesn't exist yet. If you do use "write" on an
+  existing file for a small change, the "content" you send back must be the file's FULL
+  original text with ONLY the requested part changed -- everything else copied verbatim,
+  not rephrased, reformatted, or "cleaned up".
 - File names: when the user does NOT specify an exact filename, choose one that is lowercase,
   hyphen-separated, and based on actual content -- no generic names like "file1". Keep the same
   file extension as the original file you're renaming/basing this on (a .csv stays .csv, a .md
@@ -445,6 +455,60 @@ def diff_for_write(folder, rel, new_content):
     return "".join(diff_lines)
 
 
+def compute_replace(content, find, replace):
+    """Apply a find/replace to `content`, requiring `find` to match exactly
+    once. Shared by apply_actions (to actually change the file) and
+    diff_for_action (to preview the change) so the two can never disagree
+    about what a "replace" action does.
+
+    Requiring exactly one match (not "first match", not "all matches") is
+    the whole point of this action type: it's what makes "replace" safe for
+    a small local model to use on a file it can't fully re-verify -- if
+    `find` isn't unique, silently picking one occurrence could edit the
+    wrong spot, and silently replacing all occurrences could touch code the
+    user never asked about. Either way this raises instead of guessing, and
+    the model is expected to include more surrounding context in `find`
+    until it's unique."""
+    count = content.count(find)
+    if count == 0:
+        raise ValueError("'find' metni dosyada bulunamadı -- dosyanın gösterilen içeriğinden birebir kopyalanmalı")
+    if count > 1:
+        raise ValueError(
+            f"'find' metni dosyada birden fazla yerde geçiyor ({count} kez) -- "
+            "hangi yeri kastettiğin belirsiz, daha fazla çevresel bağlam içeren "
+            "daha uzun/spesifik bir metin ver"
+        )
+    return content.replace(find, replace, 1)
+
+
+def diff_for_action(folder, action):
+    """Best-effort unified diff preview for a 'write' or 'replace' action
+    targeting a config file, for the approval UI. Returns "" if the action
+    isn't diffable (wrong type, path escapes the folder, or a 'replace'
+    whose 'find' text isn't found/unique in the file right now) -- this is
+    purely a preview and never raises; apply_actions is still the source of
+    truth for whether an action actually succeeds when applied."""
+    atype = action.get("type")
+    rel = str(action.get("path", ""))
+    target = os.path.normpath(os.path.join(folder, rel))
+    if not target.startswith(os.path.normpath(folder)):
+        return ""
+    if atype == "write":
+        return diff_for_write(folder, rel, action.get("content", ""))
+    if atype == "replace":
+        try:
+            with open(target, "r", errors="replace") as f:
+                old_content = f.read()
+        except OSError:
+            return ""
+        try:
+            new_content = compute_replace(old_content, action.get("find", ""), action.get("replace", ""))
+        except ValueError:
+            return ""
+        return diff_for_write(folder, rel, new_content)
+    return ""
+
+
 def apply_actions(folder, actions):
     """Execute a list of approved actions against `folder`. Returns a list
     of {action, ok, detail} results. Paths are always resolved relative to
@@ -487,6 +551,14 @@ def apply_actions(folder, actions):
                 with open(dst, "w") as f:
                     f.write(action.get("content", ""))
                 results.append({"action": action, "ok": True, "detail": "written"})
+            elif atype == "replace":
+                dst = safe_new_path(action["path"])
+                with open(dst, "r", errors="replace") as f:
+                    current = f.read()
+                new_content = compute_replace(current, action["find"], action["replace"])
+                with open(dst, "w") as f:
+                    f.write(new_content)
+                results.append({"action": action, "ok": True, "detail": "replaced"})
             elif atype == "merge":
                 dst = safe_new_path(action["into"])
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
