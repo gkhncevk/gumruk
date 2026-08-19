@@ -269,16 +269,47 @@ def list_folder_preview(folder, max_files=15, preview_chars=1200, max_file_size=
     all_extensions = SUPPORTED_EXTENSIONS + CONTEXT_ONLY_EXTENSIONS
     if not os.path.isdir(folder):
         return entries, skipped
+
+    # os.walk visits subdirectories in whatever order the filesystem happens
+    # to return them (not alphabetical, not "fair") -- on a multi-project repo
+    # this meant a single top-level folder (observed: backend-dotnet, simply
+    # because it came first) could consume the entire max_files budget before
+    # any other project got a look-in, e.g. ai-service/ never appearing at
+    # all. Grouping candidates by their top-level path component first and
+    # then round-robining across groups guarantees every top-level folder
+    # (and files sitting directly in `folder`) gets a fair share instead of
+    # one subtree crowding out the rest.
+    groups = {}  # top-level component -> sorted list of relative paths
     for root, dirs, files in os.walk(folder):
         dirs[:] = [d for d in dirs if not d.startswith(".") and d not in EXCLUDED_DIR_NAMES]
-        for name in sorted(files):
+        for name in files:
             if name in EXCLUDED_FILE_NAMES:
                 continue
             lname = name.lower()
             if not lname.endswith(all_extensions):
                 continue
             rel = os.path.relpath(os.path.join(root, name), folder)
-            full = os.path.join(root, name)
+            top = rel.split(os.sep, 1)[0] if os.sep in rel else ""
+            groups.setdefault(top, []).append(rel)
+
+    for rels in groups.values():
+        rels.sort()
+    group_keys = sorted(groups)
+    cursors = {key: 0 for key in group_keys}
+
+    while len(entries) < max_files:
+        made_progress = False
+        for key in group_keys:
+            if len(entries) >= max_files:
+                break
+            rels = groups[key]
+            if cursors[key] >= len(rels):
+                continue
+            rel = rels[cursors[key]]
+            cursors[key] += 1
+            made_progress = True
+
+            full = os.path.join(folder, rel)
             try:
                 size = os.path.getsize(full)
             except OSError:
@@ -291,13 +322,15 @@ def list_folder_preview(folder, max_files=15, preview_chars=1200, max_file_size=
                     content = f.read(preview_chars)
             except OSError:
                 content = ""
+            lname = rel.lower()
             entries.append({
                 "path": rel,
                 "preview": content,
                 "editable": lname.endswith(SUPPORTED_EXTENSIONS),
             })
-            if len(entries) >= max_files:
-                return entries, skipped
+        if not made_progress:
+            break
+
     return entries, skipped
 
 
