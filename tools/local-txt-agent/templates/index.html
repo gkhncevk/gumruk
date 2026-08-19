@@ -303,11 +303,30 @@ function contentPreview(content, max) {
   return `<div style="margin-top:4px;padding:8px 10px;background:#0f1115;border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--muted);white-space:pre-wrap;max-height:160px;overflow-y:auto">${escapeHtml(shown)}</div>`;
 }
 
+// Config-file writes (.json/.yaml/.yml) come back from the server with a
+// unified diff (see agent.diff_for_write) instead of only the new content --
+// much easier to catch a bad edit by scanning +/- lines than by re-reading a
+// whole file from memory. Falls back to contentPreview() for a brand-new
+// file (nothing to diff against) or for non-config writes (.txt/.md/.csv),
+// which don't get a "diff" field at all.
+function diffPreview(diff) {
+  const lines = diff.split('\n').map(line => {
+    let color = 'var(--muted)';
+    if (line.startsWith('+') && !line.startsWith('+++')) color = '#4ade80';
+    else if (line.startsWith('-') && !line.startsWith('---')) color = '#f87171';
+    else if (line.startsWith('@@')) color = '#60a5fa';
+    return `<span style="color:${color}">${escapeHtml(line)}</span>`;
+  }).join('\n');
+  return `<div style="margin-top:4px;padding:8px 10px;background:#0f1115;border:1px solid var(--border);border-radius:8px;font-size:12px;white-space:pre-wrap;max-height:220px;overflow-y:auto">${lines}</div>`;
+}
+
 function actionLabel(a) {
   switch (a.type) {
     case 'rename': return `yeniden adlandır: ${escapeHtml(a.from)} → ${escapeHtml(a.to)}`;
     case 'move': return `taşı: ${escapeHtml(a.from)} → ${escapeHtml(a.to)}`;
-    case 'write': return `içeriği güncelle: ${escapeHtml(a.path)} — yeni içerik önizlemesi:` + contentPreview(a.content, 600);
+    case 'write':
+      if (a.diff) return `içeriği güncelle: ${escapeHtml(a.path)} — değişiklik (diff):` + diffPreview(a.diff);
+      return `içeriği güncelle: ${escapeHtml(a.path)} — yeni içerik önizlemesi:` + contentPreview(a.content, 600);
     case 'merge': return `birleştir: ${(a.sources||[]).map(escapeHtml).join(', ')} → ${escapeHtml(a.into)}`;
     case 'split': return `böl: ${escapeHtml(a.source)} → ${(a.parts||[]).map(p=>escapeHtml(p.name)).join(', ')}`;
     case 'delete': return `sil: ${escapeHtml(a.path)}`;

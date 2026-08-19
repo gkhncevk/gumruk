@@ -73,6 +73,17 @@ def api_plan():
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": str(e)}), 500
 
+    # For "write" actions on config files (.json/.yaml/.yml), attach a diff
+    # against the file's actual current content so the approval UI can show
+    # what would change line-by-line instead of just a wall of new content --
+    # much easier to catch a bad edit in a diff than by eyeballing a full file.
+    for action in plan.get("actions", []):
+        if action.get("type") == "write" and str(action.get("path", "")).lower().endswith(agent.CONFIG_WRITABLE_EXTENSIONS):
+            try:
+                action["diff"] = agent.diff_for_write(folder, action["path"], action.get("content", ""))
+            except ValueError:
+                pass  # path escapes folder -- apply_actions will reject it anyway, no diff to show
+
     history.append({"role": "user", "content": message})
     history.append({"role": "assistant", "content": plan.get("reply", "")})
     # keep history bounded

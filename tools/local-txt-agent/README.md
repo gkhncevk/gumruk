@@ -6,25 +6,33 @@ doğal dilde bir klasördeki `.txt`, `.md` ve `.csv` dosyalarıyla ne yapmak
 istediğini söylersin (yeniden adlandır, içeriği düzenle, birleştir, böl,
 klasörlere ayır), agent bir plan önerir, sen onaylarsın, ancak öyle uygulanır.
 
-Agent sadece bu üç dosya türünü **değiştirebilir** (yeniden adlandırma, yazma,
-birleştirme, bölme, taşıma, silme) — `agent.py` içindeki `SUPPORTED_EXTENSIONS`
-listesi bunu belirliyor. Başka bir dosya türüne (`.pdf`, `.png` vb.)
-yazmaya/yeniden adlandırmaya çalışan bir işlem önerilse bile, uygulama
-aşamasında otomatik reddedilir — model bir hata yapsa bile bu tür dosyalara
-asla dokunamaz.
+Agent iki tür dosyayı **değiştirebilir** (yeniden adlandırma, yazma,
+birleştirme, bölme, taşıma, silme) — `agent.py` içindeki `WRITABLE_EXTENSIONS`
+listesi (`SUPPORTED_EXTENSIONS` + `CONFIG_WRITABLE_EXTENSIONS`) bunu belirliyor:
 
-Ayrıca kod/config dosyalarını (`.py`, `.cs`, `.ts`/`.tsx`, `.js`/`.jsx`, `.json`,
-`.yaml`/`.yml`, `.html`, `.css`) **salt-okunur bağlam** olarak görebilir
-(`CONTEXT_ONLY_EXTENSIONS`) — gümrük projesinin artık üç dilde (Python, C#,
-TypeScript) yazılmış olması bunu gerektirdi. Bu, "README'deki şu değer
-koddakiyle uyumlu mu" gibi soruları cevaplayabilmesi için var (bkz. aşağıdaki
-"Gerçek kullanım örneği"). Ama bu dosyalara **asla** yazamaz/yeniden
-adlandıramaz/silemez — `apply_actions`'daki `safe_new_path` kontrolü sadece
-`SUPPORTED_EXTENSIONS`'ı (txt/md/csv) kabul ediyor. Bilinçli bir tercih: bu
-dosyalar sözdizimsel olarak kırılgan (yanlış bir düzenleme derlemeyi/config'i
-bozabilir), `.txt`/`.md`/`.csv`'nin aksine — o yüzden hepsi salt-okunur
-kalıyor, en azından küçük yerel modeller için şimdilik güvenli tarafta durmak
-adına.
+- **Düz metin** (`SUPPORTED_EXTENSIONS`): `.txt`, `.md`, `.csv`
+- **Yapılandırılmış config** (`CONFIG_WRITABLE_EXTENSIONS`): `.json`, `.yaml`, `.yml`
+  — bunlar için her "yazma" işlemi, uygulamadan önce eski/yeni içerik arasında
+  satır satır bir **diff** gösterir (bkz. `agent.diff_for_write`), sadece yeni
+  içeriğin tamamını göstermek yerine — yanlış bir düzenlemeyi fark etmek çok
+  daha kolay.
+
+Başka bir dosya türüne (`.pdf`, `.png` vb.) yazmaya/yeniden adlandırmaya
+çalışan bir işlem önerilse bile, uygulama aşamasında otomatik reddedilir —
+model bir hata yapsa bile bu tür dosyalara asla dokunamaz.
+
+Ayrıca gerçek kod dosyalarını (`.py`, `.cs`, `.ts`/`.tsx`, `.js`/`.jsx`, `.html`,
+`.css`) **salt-okunur bağlam** olarak görebilir (`CONTEXT_ONLY_EXTENSIONS`) —
+gümrük projesinin artık üç dilde (Python, C#, TypeScript) yazılmış olması bunu
+gerektirdi. Bu, "README'deki şu değer koddakiyle uyumlu mu" gibi soruları
+cevaplayabilmesi için var (bkz. aşağıdaki "Gerçek kullanım örneği"). Ama bu
+dosyalara **asla** yazamaz/yeniden adlandıramaz/silemez — `apply_actions`'daki
+`safe_new_path` kontrolü sadece `WRITABLE_EXTENSIONS`'ı kabul ediyor. Bilinçli
+bir tercih: gerçek kaynak kodu, config dosyalarından bile daha kırılgan —
+yanlış bir düzenleme derlemeyi sessizce bozabilir ve fark edilmesi daha zor
+olur. Config dosyalarına yazma izni (diff önizlemesiyle) kademeli genişlemenin
+ilk adımı; kaynak koduna yazma izni, bu adım kendini kanıtladıktan sonra
+düşünülecek bir sonraki adım.
 
 15.7k satırlık bir CSV gibi çok büyük dosyalar (`MAX_PREVIEW_FILE_SIZE`,
 varsayılan 200KB) otomatik atlanır — küçük yerel modeli boğmasın diye. Atlanan
@@ -131,9 +139,15 @@ dokunmadan, sadece bir bulgu raporu olarak.
 - [x] `.py` dosyalarını salt-okunur bağlam olarak görme (dokümantasyon-kod
       tutarlılık kontrolü için)
 - [x] Çok büyük dosyaları (>200KB) otomatik atlama
-- [x] `CONTEXT_ONLY_EXTENSIONS`'ı `.cs`/`.ts`/`.tsx`/`.js`/`.jsx`/`.json`/`.yaml`/`.yml`/`.html`/`.css`'e
+- [x] `CONTEXT_ONLY_EXTENSIONS`'ı `.cs`/`.ts`/`.tsx`/`.js`/`.jsx`/`.html`/`.css`'e
       genişletmek — artık gümrük projesinin .NET (`backend-dotnet/`) ve
       Next.js (`frontend-nextjs/`) tarafını da görebiliyor
+- [x] `.json`/`.yaml`/`.yml` config dosyalarına yazma izni (diff önizlemesiyle,
+      `CONFIG_WRITABLE_EXTENSIONS`) — kod dosyalarına yazma iznine kademeli
+      ilk adım
+- [ ] Gerçek kaynak koduna (`.py`/`.cs`/`.ts`) yazma izni — config tarafı
+      kendini kanıtladıktan sonra değerlendirilecek, muhtemelen ek bir
+      güvenlik katmanıyla (örn. her dosya türü için ayrı onay adımı)
 - [ ] Word (`.docx`) desteği — bu, düz metin değil, ZIP içinde XML barındıran
       yapılandırılmış bir format. `python-docx` kütüphanesi ve düz metinden
       farklı bir okuma/yazma kod yolu gerektiriyor (paragraf yapısını koruma).

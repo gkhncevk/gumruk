@@ -9,6 +9,7 @@ executes it after the user clicks "Apply" in the UI. This keeps a human
 in the loop for anything destructive (renames, overwrites, merges).
 """
 
+import difflib
 import json
 import os
 import re
@@ -30,27 +31,39 @@ DEFAULT_MODEL = "llama3.2:3b"
 # kinds of files you actually asked it to manage.
 SUPPORTED_EXTENSIONS = (".txt", ".md", ".csv")
 
+# Structured config files: also writable, but kept as a separate, smaller
+# tier from SUPPORTED_EXTENSIONS on purpose. These are a deliberate first
+# step into "the agent can write files that aren't free text" -- picked
+# because a bad edit here (wrong port, wrong image tag) is typically
+# noticeable and easy to revert, unlike a bad edit to actual source code
+# (.py/.cs/.ts, still in CONTEXT_ONLY_EXTENSIONS below) which can silently
+# break a build in ways that are much harder to spot. Every "write" action
+# targeting one of these goes through diff_for_write() so you see exactly
+# what changed before approving it, not just a wall of new content to eyeball.
+CONFIG_WRITABLE_EXTENSIONS = (".json", ".yaml", ".yml")
+
+# Every extension apply_actions() will accept as a write/rename/move target.
+WRITABLE_EXTENSIONS = SUPPORTED_EXTENSIONS + CONFIG_WRITABLE_EXTENSIONS
+
 # Extra file types the agent may READ for context (e.g. to cross-check a
 # project's docs against its actual code) but can never write, rename, move,
-# or delete -- apply_actions()'s safe_new_path() only accepts SUPPORTED_EXTENSIONS,
+# or delete -- apply_actions()'s safe_new_path() only accepts WRITABLE_EXTENSIONS,
 # so even if a model mistakenly proposed an action on one of these, it would
 # be rejected before touching disk. This is what lets the agent answer "does
 # this README match what risk.py actually does" without expanding what it's
 # allowed to modify.
 #
 # Deliberately kept read-only even though these are "just text" underneath:
-# unlike .txt/.md/.csv (free prose / tabular data, where a bad edit at worst
-# garbles a note or a row), these are syntactically fragile -- a small local
-# model rewriting a .cs file or an appsettings.json can break a build or a
-# running config in a way that's much harder to notice and undo. Source code
-# and structured config stay read-only until there's a stronger case (e.g. a
-# much better model, or per-file human review before every code write) for
-# letting the agent touch them directly.
+# a small local model rewriting a .cs or .ts file can break a build in a way
+# that's much harder to notice and undo than a bad config edit (which at
+# least fails loudly and is caught by the diff preview). Source code stays
+# read-only until there's a stronger case (e.g. a much better model, or the
+# config-writing tier above proving out well) for letting the agent touch it
+# directly.
 CONTEXT_ONLY_EXTENSIONS = (
     ".py",                                    # Python (ai-service)
     ".cs",                                    # C# (backend-dotnet)
     ".ts", ".tsx", ".js", ".jsx",              # TypeScript/JavaScript (frontend, frontend-nextjs)
-    ".json", ".yaml", ".yml",                  # config (appsettings.json, package.json, docker-compose.yml, ...)
     ".html", ".css",                           # markup/styling
 )
 
@@ -91,9 +104,10 @@ MAX_PREVIEW_FILE_SIZE = 200_000  # bytes
 # contain literal { } braces that must NOT be treated as format placeholders.
 SYSTEM_PROMPT = (
     "You are a local file-organizing assistant. You help the user manage plain-text files "
-    f"({', '.join(SUPPORTED_EXTENSIONS)}) in a folder on their own computer. You do NOT "
-    "execute anything yourself -- you only PROPOSE a plan, and a human approves it before "
-    "anything happens.\n\n"
+    f"({', '.join(SUPPORTED_EXTENSIONS)}) and structured config files "
+    f"({', '.join(CONFIG_WRITABLE_EXTENSIONS)}) in a folder on their own computer. You do NOT "
+    "execute anything yourself -- you only PROPOSE a plan, and a human approves it (after "
+    "seeing exactly what would change) before anything happens.\n\n"
     f"You may also be shown {', '.join(CONTEXT_ONLY_EXTENSIONS)} files from the same folder, "
     "marked as [READ-ONLY, for context] in the folder listing. These give you background (e.g. "
     "actual code/config a .md file is supposed to describe) but you can NEVER propose an action "
@@ -151,6 +165,12 @@ Rules:
   keep it valid CSV (comma-separated columns, the same number of columns on every row, keep the
   header row as-is unless asked to change it). Never turn a .csv file's content into paragraphs
   of prose.
+- .json/.yaml/.yml files are structured config, not free text: when writing new content for one,
+  change ONLY the specific key/value the user asked about and leave every other key, value,
+  ordering, comment, and indentation exactly as it was in the original -- do not reformat,
+  reindent, alphabetize keys, or "clean up" anything you weren't asked to touch. The result must
+  be syntactically valid JSON (or YAML). If you're not fully sure the edit keeps the file valid,
+  say so in "reply" and propose no action instead of guessing.
 - When the user asks you to summarize, explain, or extract information from a file's content
   (e.g. "özetini çıkar", "bu dosyada ne yazıyor", "summarize this") and does NOT ask you to save
   or write that summary anywhere, just answer directly in "reply" with an empty "actions" list --
@@ -267,7 +287,7 @@ def list_folder_preview(folder, user_message="", max_files=15, preview_chars=120
     """Build a compact description of the folder's files for the model.
 
     Returns (entries, skipped) where each entry has an "editable" flag
-    (True for SUPPORTED_EXTENSIONS, False for CONTEXT_ONLY_EXTENSIONS) and
+    (True for WRITABLE_EXTENSIONS, False for CONTEXT_ONLY_EXTENSIONS) and
     "skipped" lists (path, size_bytes) for files that matched an allowed
     extension but were too large to preview in full.
 
@@ -281,7 +301,7 @@ def list_folder_preview(folder, user_message="", max_files=15, preview_chars=120
     given question."""
     entries = []
     skipped = []
-    all_extensions = SUPPORTED_EXTENSIONS + CONTEXT_ONLY_EXTENSIONS
+    all_extensions = WRITABLE_EXTENSIONS + CONTEXT_ONLY_EXTENSIONS
     if not os.path.isdir(folder):
         return entries, skipped
 
@@ -359,7 +379,7 @@ def list_folder_preview(folder, user_message="", max_files=15, preview_chars=120
             entries.append({
                 "path": rel,
                 "preview": content,
-                "editable": lname.endswith(SUPPORTED_EXTENSIONS),
+                "editable": lname.endswith(WRITABLE_EXTENSIONS),
             })
         if not made_progress:
             break
@@ -379,7 +399,7 @@ def propose_plan(folder, user_message, history, model=None):
         lines.append(f"- {rel}: [skipped, {size:,} bytes -- too large to preview in full]")
 
     folder_summary = "\n".join(lines) or (
-        f"(folder is empty or has no {'/'.join(SUPPORTED_EXTENSIONS + CONTEXT_ONLY_EXTENSIONS)} files yet)"
+        f"(folder is empty or has no {'/'.join(WRITABLE_EXTENSIONS + CONTEXT_ONLY_EXTENSIONS)} files yet)"
     )
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -398,6 +418,33 @@ def propose_plan(folder, user_message, history, model=None):
     return plan
 
 
+def diff_for_write(folder, rel, new_content):
+    """Unified diff between a file's current on-disk content and a proposed
+    new "write" content -- so the UI can show exactly what a config-file edit
+    would change instead of dumping the whole new file for the user to eyeball
+    against memory. Read-only: never touches disk. Returns "" if the file
+    doesn't exist yet (a genuinely new file, nothing to diff against) or if
+    old and new content are identical."""
+    target = os.path.normpath(os.path.join(folder, rel))
+    if not target.startswith(os.path.normpath(folder)):
+        raise ValueError(f"Path escapes target folder: {rel}")
+    try:
+        with open(target, "r", errors="replace") as f:
+            old_content = f.read()
+    except OSError:
+        old_content = ""
+    if old_content == (new_content or ""):
+        return ""
+    # keepends=True lines already carry their own trailing "\n", so join with
+    # "" (not "\n") -- unified_diff's default lineterm="\n" only adds a
+    # newline to the ---/+++/@@ header lines it generates itself, not to the
+    # content lines it copies from old_lines/new_lines as-is.
+    old_lines = old_content.splitlines(keepends=True)
+    new_lines = (new_content or "").splitlines(keepends=True)
+    diff_lines = difflib.unified_diff(old_lines, new_lines, fromfile=rel, tofile=rel)
+    return "".join(diff_lines)
+
+
 def apply_actions(folder, actions):
     """Execute a list of approved actions against `folder`. Returns a list
     of {action, ok, detail} results. Paths are always resolved relative to
@@ -414,9 +461,9 @@ def apply_actions(folder, actions):
         isn't one this agent is meant to manage -- a guardrail so a model
         mistake can't result in writing/renaming into some other file type
         you never asked it to touch."""
-        if not rel.lower().endswith(SUPPORTED_EXTENSIONS):
+        if not rel.lower().endswith(WRITABLE_EXTENSIONS):
             raise ValueError(
-                f"Desteklenmeyen dosya türü: {rel} (sadece {', '.join(SUPPORTED_EXTENSIONS)} destekleniyor)"
+                f"Desteklenmeyen dosya türü: {rel} (sadece {', '.join(WRITABLE_EXTENSIONS)} destekleniyor)"
             )
         return safe_path(rel)
 
