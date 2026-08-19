@@ -148,8 +148,8 @@ Frontend kaynağını değiştirirsen tekrar build etmen gerekir: `cd frontend &
 ## 10. Bilinen sınırlar (dürüstçe)
 
 - Kural kütüphanesindeki GYK 1-6 artık Ticaret Bakanlığı'nın resmi "yorum kuralları" yayınından birebir (verbatim) alındı — yazarın özeti değil. Ama pozisyona özel notlar (`FASIL90-NOT1B`, `POZ-6307` vb.) hâlâ elle derlendi, resmi metinle birebir doğrulanmadı.
-- Hibrit arama (Faz 8) TF-IDF'in saf semantik sınırını büyük ölçüde giderdi, ama kombinasyon ağırlığı (0.5/0.5 TF-IDF/embedding) hâlâ elle konulmuş bir ilk tahmin — gerçek feedback verisiyle ince ayar yapılabilir.
-- Risk eşiği (0.15) artık eski TF-IDF-only skor dağılımına göre konulmuştu; hibrit skorlarla (gözlemlenen aralık ~%25-95) yeniden kalibre edilmesi gerekiyor — bu adım henüz yapılmadı.
+- Hibrit arama (Faz 8) TF-IDF'in saf semantik sınırını büyük ölçüde giderdi, ama kombinasyon ağırlığı (0.7/0.3 TF-IDF/embedding) hâlâ elle konulmuş bir ilk tahmin — gerçek feedback verisiyle ince ayar yapılabilir.
+- Risk eşiği, hibrit skorlara geçişle birlikte Faz 8'de 0.15'ten 0.30'a yükseltildi (bkz. `risk.py`, `ai-service/README.md`) — ama bu da gözlemlenen skor dağılımına göre elle yapılmış bir ayar, gerçek etiketlenmiş "riskli/risksiz" beyanname verisiyle istatistiksel olarak tam kalibre edilmedi.
 - Değerlendirme veri seti küçük (n=41) — istatistiksel güç sınırlı, güven aralığı geniş.
 - BTB kararları (güçlü kanıt katmanı) hâlâ sadece fasıl 61-64'te; tüm tarife için bu derinliği sağlamak manuel doğrulama gerektiriyor, ölçeklenebilir değil.
 
@@ -165,7 +165,7 @@ Bu sınırların hepsi ilgili kod dosyalarında ve `ai-service/README.md`'de dah
 - [x] CI: her push'ta testleri ve build'i otomatik çalıştırmak (bkz. `.github/workflows/ci.yml`)
 - [x] Tek komutla kurulum (Docker Compose — bkz. bölüm 7)
 - [ ] BTB emsal derinliğini kademeli olarak başka fasıllara da yaymak
-- [ ] Risk eşiğini (CONFIDENCE_THRESHOLD) yeni hibrit skor dağılımına göre kalibre etmek
+- [ ] Risk eşiğini (CONFIDENCE_THRESHOLD, şu an 0.30) gerçek etiketlenmiş beyanname verisiyle istatistiksel olarak kalibre etmek
 - [ ] İsteğe bağlı LLM katmanıyla gerekçe metnini akıcılaştırmak
 - [ ] Görsel/multimodal sınıflandırma (bilerek şimdilik ertelendi — bkz. tasarım notları)
 
