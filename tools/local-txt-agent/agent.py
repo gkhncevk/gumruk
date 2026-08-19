@@ -183,13 +183,30 @@ OLLAMA_TIMEOUT_SECONDS = 300  # local 7B/14B models on a loaded machine can take
 
 # Ollama serves every model with a 2048-token context window by default,
 # regardless of how large a window the model itself actually supports -- this
-# was the real cause of the empty-response bug: logs showed
+# was the first cause of the empty-response bug: logs showed
 # "limit=2050 prompt=22574", i.e. Ollama silently truncating the prompt down
-# to its default window before the model ever saw most of it, not the model
-# failing to answer. Setting num_ctx explicitly is what actually fixes that;
-# trimming the prompt (below) just keeps typical prompts comfortably inside
-# this budget so responses stay fast.
-OLLAMA_NUM_CTX = 8192
+# to its default window before the model ever saw most of it.
+#
+# Setting num_ctx explicitly fixed that, but exposed a second layer of the
+# same problem: with num_ctx=8192, Ollama by default reserves roughly half of
+# it for the model's own reply (since no num_predict was set), so anything
+# over ~4100 prompt tokens still got truncated -- and worse, the truncation
+# keeps only the first few tokens (observed: "keep=4"), which drops almost the
+# entire system prompt (it's first in the message list) and leaves the model
+# with no idea what JSON shape it's supposed to reply in. That's exactly what
+# produced the garbage, schema-less JSON dump seen in practice (a raw
+# file-path -> content mapping instead of {"reply": ..., "actions": [...]}).
+#
+# Fixing this for real means two things together: cap num_predict explicitly
+# (so Ollama doesn't need to silently reserve half of num_ctx "just in case"),
+# and raise num_ctx enough that even a conservative reservation leaves several
+# thousand tokens of headroom over what list_folder_preview() below can
+# actually produce.
+OLLAMA_NUM_CTX = 16384
+OLLAMA_NUM_PREDICT = 1024  # replies are meant to be short (see SYSTEM_PROMPT);
+# this also stops a confused model from rambling for thousands of tokens (the
+# garbage response above ran to 2563 output tokens and took ~170s for a
+# question that should've been a one-line JSON reply).
 
 
 def _ollama_chat(messages, model):
@@ -200,7 +217,11 @@ def _ollama_chat(messages, model):
             "messages": messages,
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0.2, "num_ctx": OLLAMA_NUM_CTX},
+            "options": {
+                "temperature": 0.2,
+                "num_ctx": OLLAMA_NUM_CTX,
+                "num_predict": OLLAMA_NUM_PREDICT,
+            },
         },
         timeout=OLLAMA_TIMEOUT_SECONDS,
     )
@@ -229,12 +250,14 @@ def _extract_json(text):
 
 
 # Lowered from the original 40 files / 4000 chars each once CONTEXT_ONLY_EXTENSIONS
-# grew to 10 extensions across a multi-language repo: worst case is now
-# 20 * 1500 = 30,000 chars (~7-8K tokens) of preview text, which -- together
-# with OLLAMA_NUM_CTX above -- comfortably fits with room for the system
-# prompt and conversation history, instead of silently exceeding Ollama's
-# default 2048-token window like the old 40 * 4000 (~40K token) worst case did.
-def list_folder_preview(folder, max_files=20, preview_chars=1500, max_file_size=MAX_PREVIEW_FILE_SIZE):
+# grew to 10 extensions across a multi-language repo. Even the first-round
+# lowering (20 * 1500) still measured out at ~8.3K tokens on a real scan of the
+# gumruk repo root -- fine against OLLAMA_NUM_CTX=16384, but it was that close
+# to the smaller num_ctx we started with that a little more margin is worth
+# having. Worst case is now 15 * 1200 = 18,000 chars (~4.5K tokens), leaving
+# generous headroom under OLLAMA_NUM_CTX minus OLLAMA_NUM_PREDICT for the
+# system prompt and conversation history on top.
+def list_folder_preview(folder, max_files=15, preview_chars=1200, max_file_size=MAX_PREVIEW_FILE_SIZE):
     """Build a compact description of the folder's files for the model.
 
     Returns (entries, skipped) where each entry has an "editable" flag
