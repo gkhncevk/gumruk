@@ -257,13 +257,22 @@ def _extract_json(text):
 # having. Worst case is now 15 * 1200 = 18,000 chars (~4.5K tokens), leaving
 # generous headroom under OLLAMA_NUM_CTX minus OLLAMA_NUM_PREDICT for the
 # system prompt and conversation history on top.
-def list_folder_preview(folder, max_files=15, preview_chars=1200, max_file_size=MAX_PREVIEW_FILE_SIZE):
+def list_folder_preview(folder, user_message="", max_files=15, preview_chars=1200, max_file_size=MAX_PREVIEW_FILE_SIZE):
     """Build a compact description of the folder's files for the model.
 
     Returns (entries, skipped) where each entry has an "editable" flag
     (True for SUPPORTED_EXTENSIONS, False for CONTEXT_ONLY_EXTENSIONS) and
     "skipped" lists (path, size_bytes) for files that matched an allowed
-    extension but were too large to preview in full."""
+    extension but were too large to preview in full.
+
+    `user_message` is used for a lightweight relevance boost: within each
+    top-level project's file list, a file whose name is literally mentioned
+    in the user's question (e.g. "risk.py'deki ... deger") is moved to the
+    front, ahead of round-robin's plain alphabetical order. Without this, a
+    deep file like ai-service/app/risk.py could sit past max_files even when
+    the user explicitly asked about it by name -- fair-share-by-project alone
+    doesn't know which specific file within a project actually matters for a
+    given question."""
     entries = []
     skipped = []
     all_extensions = SUPPORTED_EXTENSIONS + CONTEXT_ONLY_EXTENSIONS
@@ -292,8 +301,12 @@ def list_folder_preview(folder, max_files=15, preview_chars=1200, max_file_size=
             top = rel.split(os.sep, 1)[0] if os.sep in rel else ""
             groups.setdefault(top, []).append(rel)
 
+    query = user_message.lower()
     for rels in groups.values():
-        rels.sort()
+        if query:
+            rels.sort(key=lambda rel: (os.path.basename(rel).lower() not in query, rel))
+        else:
+            rels.sort()
     group_keys = sorted(groups)
     cursors = {key: 0 for key in group_keys}
 
@@ -336,7 +349,7 @@ def list_folder_preview(folder, max_files=15, preview_chars=1200, max_file_size=
 
 def propose_plan(folder, user_message, history, model=None):
     model = model or DEFAULT_MODEL
-    files, skipped = list_folder_preview(folder)
+    files, skipped = list_folder_preview(folder, user_message)
 
     lines = []
     for e in files:
