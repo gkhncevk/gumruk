@@ -257,6 +257,9 @@ def _extract_json(text):
 # having. Worst case is now 15 * 1200 = 18,000 chars (~4.5K tokens), leaving
 # generous headroom under OLLAMA_NUM_CTX minus OLLAMA_NUM_PREDICT for the
 # system prompt and conversation history on top.
+MATCHED_FILE_PREVIEW_CHARS = 4000  # see the comment above the read() call below
+
+
 def list_folder_preview(folder, user_message="", max_files=15, preview_chars=1200, max_file_size=MAX_PREVIEW_FILE_SIZE):
     """Build a compact description of the folder's files for the model.
 
@@ -302,9 +305,13 @@ def list_folder_preview(folder, user_message="", max_files=15, preview_chars=120
             groups.setdefault(top, []).append(rel)
 
     query = user_message.lower()
+    matched_rels = set()
     for rels in groups.values():
         if query:
-            rels.sort(key=lambda rel: (os.path.basename(rel).lower() not in query, rel))
+            for rel in rels:
+                if os.path.basename(rel).lower() in query:
+                    matched_rels.add(rel)
+            rels.sort(key=lambda rel: (rel not in matched_rels, rel))
         else:
             rels.sort()
     group_keys = sorted(groups)
@@ -330,9 +337,19 @@ def list_folder_preview(folder, user_message="", max_files=15, preview_chars=120
             if size > max_file_size:
                 skipped.append((rel, size))
                 continue
+            # A file the user named explicitly gets a much bigger preview --
+            # 1200 chars is enough for round-robin filler, but not for e.g. a
+            # source file whose relevant constant sits after a long docstring
+            # (observed: risk.py's CONFIDENCE_THRESHOLD starts at char 1705,
+            # past the plain preview_chars cutoff, so the model could only
+            # honestly say "I can't see the value" instead of answering).
+            # There are normally only one or two name-matched files per
+            # question, so this doesn't meaningfully change the overall
+            # prompt budget.
+            this_preview_chars = MATCHED_FILE_PREVIEW_CHARS if rel in matched_rels else preview_chars
             try:
                 with open(full, "r", errors="replace") as f:
-                    content = f.read(preview_chars)
+                    content = f.read(this_preview_chars)
             except OSError:
                 content = ""
             lname = rel.lower()
