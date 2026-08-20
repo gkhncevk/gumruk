@@ -370,13 +370,13 @@ function actionLabel(a) {
   }
 }
 
-// The server only remembers ONE undo snapshot per session (the most
-// recently applied batch) -- so if an older "Geri al" button were left
-// clickable after a newer apply, clicking it would silently undo the WRONG
-// (newer) batch instead of the one it visually sits next to. Tracking the
-// single currently-valid button here and disabling any earlier one the
-// moment a new one appears keeps the UI honest about what undo will actually
-// do.
+// The server keeps a whole undo STACK per session now (see app.py's
+// MAX_UNDO_DEPTH), not just one entry -- clicking "Geri al" repeatedly
+// walks back through applied batches in reverse order. But a button always
+// undoes whatever is currently on TOP of that stack, which may no longer be
+// the batch it visually sits next to if a newer apply happened since it was
+// shown -- so any earlier button still gets disabled the moment a new one
+// appears, to keep the UI honest about what a click will actually do.
 let activeUndoBtn = null;
 
 function addUndoButton(box) {
@@ -410,6 +410,11 @@ function addUndoButton(box) {
       box.appendChild(line);
     });
     activeUndoBtn = null;
+    // Chain: if there's still an earlier batch on the stack, offer another
+    // "Geri al" right away instead of making you re-trigger it some other
+    // way -- this is what makes undo a real multi-step history, not just a
+    // single "take back my last click."
+    if (data.more_available) addUndoButton(box);
   };
   box.appendChild(undoBtn);
   activeUndoBtn = undoBtn;

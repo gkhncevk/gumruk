@@ -47,12 +47,23 @@ def save_sessions():
 
 SESSIONS = load_sessions()
 
-# One-level undo state, keyed by session_id: {"folder": ..., "snapshot": ...}
-# for the most recently applied batch. Deliberately in-memory only (not
-# persisted like SESSIONS) -- undo is a "oops, take that back" safety net for
-# the current sitting, not something that should still be offered after a
-# server restart when the on-disk files may have moved on regardless.
+# Multi-level undo, keyed by session_id: a LIFO stack of
+# {"folder": ..., "snapshot": ...} entries, one per applied batch, most
+# recent LAST. Deliberately in-memory only (not persisted like SESSIONS) --
+# undo is a "oops, take that back" safety net for the current sitting, not
+# something that should still be offered after a server restart when the
+# on-disk files may have moved on regardless.
+#
+# A plain push-on-apply / pop-on-undo stack is safe for repeated undos, not
+# just one: every apply's pre-batch state is captured and pushed BEFORE that
+# apply's own paths, so undoing always reverses exactly the most recent
+# change, in order, no matter how many are queued -- there's no scenario
+# where popping an older entry could clobber something a later, still-queued
+# entry depends on, because entries are only ever appended or popped from
+# the same end.
 UNDO_STORE = {}
+MAX_UNDO_DEPTH = 10  # bounds memory for a long working session; a fresh
+# server restart clears this anyway, so there's little value in going deeper
 
 
 @app.route("/")
@@ -176,12 +187,13 @@ def api_apply():
 
     results, snapshot = agent.apply_actions(folder, actions)
 
-    # Remember this batch's pre-action state for a one-level "Geri al"
-    # (undo). Overwrites any previous entry for this session -- only the most
-    # recently applied batch can be undone, matching the single "Geri al"
-    # button in the UI (not a full undo stack).
+    # Push this batch's pre-action state onto the session's undo stack --
+    # see the MAX_UNDO_DEPTH comment above for why repeated pushes/pops here
+    # are safe to chain, not just a single level.
     if snapshot:
-        UNDO_STORE[session_id] = {"folder": folder, "snapshot": snapshot}
+        stack = UNDO_STORE.setdefault(session_id, [])
+        stack.append({"folder": folder, "snapshot": snapshot})
+        del stack[:-MAX_UNDO_DEPTH]  # drop the oldest entries once past the cap
 
     # Record what was actually applied (vs. just proposed) so the model has
     # accurate context on the next message -- otherwise it only remembers
@@ -214,12 +226,14 @@ def api_undo():
     data = request.get_json(force=True)
     session_id = data.get("session_id", "default")
 
-    entry = UNDO_STORE.get(session_id)
-    if not entry:
+    stack = UNDO_STORE.get(session_id)
+    if not stack:
         return jsonify({"error": "Geri alınacak bir işlem yok"}), 400
 
+    entry = stack.pop()  # LIFO -- always reverses the most recently applied batch
+    if not stack:
+        del UNDO_STORE[session_id]
     results = agent.restore_snapshot(entry["folder"], entry["snapshot"])
-    del UNDO_STORE[session_id]  # single-level undo -- can't undo an undo
 
     history = SESSIONS.setdefault(session_id, [])
     summary = "; ".join(f"{r['path']} {'OK' if r['ok'] else 'FAILED'}" for r in results)
@@ -231,7 +245,7 @@ def api_undo():
     SESSIONS[session_id] = history[-30:]
     save_sessions()
 
-    return jsonify({"results": results})
+    return jsonify({"results": results, "more_available": session_id in UNDO_STORE})
 
 
 if __name__ == "__main__":

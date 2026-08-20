@@ -118,7 +118,7 @@ def test_undo_without_a_prior_apply_returns_400(client):
     assert res.status_code == 400
 
 
-def test_undo_is_single_use(client, tmp_path):
+def test_undo_empties_after_its_one_entry_is_used(client, tmp_path):
     (tmp_path / "notes.txt").write_text("v1")
     client.post("/api/apply", json={
         "folder": str(tmp_path),
@@ -128,8 +128,62 @@ def test_undo_is_single_use(client, tmp_path):
 
     first = client.post("/api/undo", json={"session_id": "s1"})
     assert first.status_code == 200
+    assert first.get_json()["more_available"] is False
     second = client.post("/api/undo", json={"session_id": "s1"})
-    assert second.status_code == 400  # nothing left to undo -- can't undo an undo
+    assert second.status_code == 400  # nothing left -- only one batch had been applied
+
+
+def test_undo_chains_through_multiple_applies_in_reverse_order(client, tmp_path):
+    # A proper LIFO stack: three applies, three undos, each one reversing
+    # exactly the most recent remaining change -- walking all the way back
+    # to the original content, not just the last edit.
+    f = tmp_path / "notes.txt"
+    f.write_text("v0")
+    for content in ("v1", "v2", "v3"):
+        res = client.post("/api/apply", json={
+            "folder": str(tmp_path),
+            "actions": [{"type": "write", "path": "notes.txt", "content": content}],
+            "session_id": "s1",
+        })
+        assert res.get_json()["undoable"] is True
+
+    assert f.read_text() == "v3"
+
+    undo1 = client.post("/api/undo", json={"session_id": "s1"})
+    assert undo1.get_json()["more_available"] is True
+    assert f.read_text() == "v2"
+
+    undo2 = client.post("/api/undo", json={"session_id": "s1"})
+    assert undo2.get_json()["more_available"] is True
+    assert f.read_text() == "v1"
+
+    undo3 = client.post("/api/undo", json={"session_id": "s1"})
+    assert undo3.get_json()["more_available"] is False
+    assert f.read_text() == "v0"
+
+    # Stack is now empty -- a fourth undo has nothing left to do.
+    undo4 = client.post("/api/undo", json={"session_id": "s1"})
+    assert undo4.status_code == 400
+
+
+def test_undo_stack_is_bounded_by_max_undo_depth(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "MAX_UNDO_DEPTH", 2)
+    f = tmp_path / "notes.txt"
+    f.write_text("v0")
+    for content in ("v1", "v2", "v3"):  # 3 applies, but the cap is 2
+        client.post("/api/apply", json={
+            "folder": str(tmp_path),
+            "actions": [{"type": "write", "path": "notes.txt", "content": content}],
+            "session_id": "s1",
+        })
+
+    # Only the 2 most recent batches are undoable -- the oldest (v0 -> v1)
+    # fell off the bounded stack, so the earliest we can get back to is v1.
+    client.post("/api/undo", json={"session_id": "s1"})
+    client.post("/api/undo", json={"session_id": "s1"})
+    assert f.read_text() == "v1"
+    last_undo = client.post("/api/undo", json={"session_id": "s1"})
+    assert last_undo.status_code == 400
 
 
 def test_apply_rejects_missing_folder(client):

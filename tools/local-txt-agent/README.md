@@ -72,10 +72,18 @@ Bir uygulamadan pişman olursan, "Seçilenleri uygula" sonrası çıkan **"Geri 
 butonuna basarak o işlem grubunu tersine çevirebilirsin — `apply_actions`
 işlemleri gerçekleştirmeden önce, grubun dokunacağı her dosyanın mevcut halini
 (var mıydı, içeriği neydi) otomatik olarak kaydeder (`agent._snapshot`); "Geri
-al" bu kaydı birebir geri yükler (`agent.restore_snapshot`). Sadece **en son**
-uygulanan grup geri alınabilir (tek seviyeli undo) — yeni bir işlem
-uyguladığında bir önceki "Geri al" butonu otomatik olarak devre dışı kalır, o
-artık farklı bir grubu geri alacağı için yanıltıcı olurdu.
+al" bu kaydı birebir geri yükler (`agent.restore_snapshot`).
+
+Bu, gerçek bir **yığın (stack)**: her uygulama session'ın undo yığınına bir
+kayıt ekler (`app.py`'de `MAX_UNDO_DEPTH=10`'a kadar), her "Geri al" en son
+eklenen kaydı çıkarıp geri yükler. Art arda "Geri al"a basarak birden fazla
+işlemi sırayla geri alabilirsin — bu güvenli, çünkü her kayıt sadece **kendi
+grubundan önceki** durumu tutuyor ve hep en sondan çıkarılıyor, yani daha
+sonraki bir işlemin üstüne yazma riski yok. Yığında başka kayıt kaldıysa
+("Geri al" cevabındaki `more_available`), arayüz otomatik olarak yeni bir
+"Geri al" butonu daha gösterir — zincirleme geri alma. Eski bir "Geri al"
+butonuna (aradan yeni bir işlem geçtiyse) basmak artık farklı, daha güncel bir
+kaydı geri alacağı için, öyle bir buton otomatik olarak devre dışı bırakılır.
 
 ## Kurulum (bir kere yapılır)
 
@@ -212,8 +220,8 @@ dokunmadan, sadece bir bulgu raporu olarak.
       farklı bir okuma/yazma kod yolu gerektiriyor (paragraf yapısını koruma).
       Ayrı bir adımda ele alınacak, salt "SUPPORTED_EXTENSIONS'a ekle" kadar
       basit değil.
-- [x] "Geri al" düğmesi (son uygulanan işlem grubunu tersine çevirme --
-      `agent.restore_snapshot`, tek seviyeli)
+- [x] "Geri al" düğmesi -- başlangıçta tek seviyeliydi, artık gerçek bir
+      yığın (`MAX_UNDO_DEPTH=10`'a kadar zincirlenebilir geri alma)
 - [x] Çok adımlı öz-düzeltme döngüsü — `replace` eylemleri, sana gösterilmeden
       önce gerçek dosyaya karşı doğrulanıyor; başarısızsa model hatayı görüp
       bir kez daha deniyor (`propose_plan` içindeki döngü, `MAX_REPLACE_RETRIES=1`)
