@@ -397,8 +397,14 @@ def _run_tool_call(folder, tool_call):
 
 # Bounds how many read_file() round trips a single plan request can spend --
 # without a cap, a model that keeps asking for "just one more file" could
-# turn a normal request into an unbounded number of Ollama calls.
-MAX_TOOL_ROUNDS = 3
+# turn a normal request into an unbounded number of Ollama calls. Lowered
+# from 3 to 2: this can stack with the self-correction retry in propose_plan
+# (+1 more call), so worst case was creeping toward 4-5 Ollama calls for one
+# question -- fine for reliability, risky for a live demo's pacing on a
+# machine that's already shown it can slow down under load. 2 still covers
+# the realistic case (one read_file call to fetch a skipped/large file, plus
+# the final answer) without the tail latency of a third round.
+MAX_TOOL_ROUNDS = 2
 
 
 def _propose_plan_raw(folder, messages, model):
