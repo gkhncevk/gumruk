@@ -80,16 +80,18 @@ def api_plan():
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": str(e)}), 500
 
-    # For "write" and "replace" actions on config files (.json/.yaml/.yml),
-    # attach a diff against the file's actual current content so the approval
-    # UI can show what would change line-by-line instead of just a wall of
-    # new content -- much easier to catch a bad edit in a diff than by
-    # eyeballing a full file (or, for "replace", to confirm "find" landed on
-    # the line you meant).
+    # For every "write" and "replace" action on a writable file (txt/md/csv
+    # included, not just config), attach a diff against the file's actual
+    # current content so the approval UI can show what would change
+    # line-by-line instead of just a wall of new content -- much easier to
+    # catch a bad edit in a diff than by eyeballing a full file (or, for
+    # "replace", to confirm "find" landed on the line you meant). This used
+    # to be config-only; there's no real reason a .txt/.md/.csv overwrite is
+    # any safer to eyeball as a raw content dump than a .json one is.
     for action in plan.get("actions", []):
         path = str(action.get("path", ""))
         atype = action.get("type")
-        if atype in ("write", "replace") and path.lower().endswith(agent.CONFIG_WRITABLE_EXTENSIONS):
+        if atype in ("write", "replace") and path.lower().endswith(agent.WRITABLE_EXTENSIONS):
             diff = agent.diff_for_action(folder, action)
             if diff:
                 action["diff"] = diff

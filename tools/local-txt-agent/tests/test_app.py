@@ -77,6 +77,23 @@ def test_plan_flags_ambiguous_replace_on_config_file_instead_of_hiding_it(client
     assert "diff" not in action
 
 
+def test_plan_shows_a_diff_for_txt_writes_too_not_just_config(client, tmp_path, monkeypatch):
+    # Diff previews used to be config-only (.json/.yaml/.yml); a .txt/.md/.csv
+    # overwrite is no safer to eyeball as a raw content dump than a config
+    # file is, so this should get the same treatment.
+    (tmp_path / "notes.txt").write_text("eski içerik")
+    monkeypatch.setattr(agent, "_ollama_chat", lambda messages, model: json.dumps({
+        "reply": "güncelliyorum",
+        "actions": [{"type": "write", "path": "notes.txt", "content": "yeni içerik"}],
+    }))
+    res = client.post("/api/plan", json={"folder": str(tmp_path), "message": "güncelle"})
+
+    action = res.get_json()["actions"][0]
+    assert "diff" in action
+    assert "-eski içerik" in action["diff"]
+    assert "+yeni içerik" in action["diff"]
+
+
 # ---------- /api/apply + /api/undo ----------
 
 def test_apply_then_undo_round_trips(client, tmp_path):

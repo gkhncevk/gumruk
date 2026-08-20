@@ -13,10 +13,14 @@ bunu belirliyor:
 
 - **Düz metin** (`SUPPORTED_EXTENSIONS`): `.txt`, `.md`, `.csv`
 - **Yapılandırılmış config** (`CONFIG_WRITABLE_EXTENSIONS`): `.json`, `.yaml`, `.yml`
-  — bunlar için her "yazma"/"hedefli değişiklik" işlemi, uygulamadan önce
-  eski/yeni içerik arasında satır satır bir **diff** gösterir (bkz.
-  `agent.diff_for_action`), sadece yeni içeriğin tamamını göstermek yerine —
-  yanlış bir düzenlemeyi fark etmek çok daha kolay.
+
+**Her ikisi için de** (yazılabilir tüm dosya türlerinde, sadece config'de değil)
+her "yazma"/"hedefli değişiklik" işlemi, uygulamadan önce eski/yeni içerik
+arasında satır satır bir **diff** gösterir (bkz. `agent.diff_for_action`),
+sadece yeni içeriğin tamamını göstermek yerine — yanlış bir düzenlemeyi fark
+etmek çok daha kolay. (Başlangıçta bu sadece config dosyalarında vardı; bir
+`.txt`/`.md`/`.csv` üstüne yazmanın bir `.json`'a yazmaktan daha "güvenli"
+olduğuna dair gerçek bir gerekçe yoktu, o yüzden tutarlılık için genişletildi.)
 
 İki değişiklik türü var: **`write`** dosyanın tamamını yeniden yazar (yeni
 dosya oluştururken ya da içeriğin çoğu değişiyorsa uygun), **`replace`** ise
