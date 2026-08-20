@@ -47,6 +47,13 @@ def save_sessions():
 
 SESSIONS = load_sessions()
 
+# One-level undo state, keyed by session_id: {"folder": ..., "snapshot": ...}
+# for the most recently applied batch. Deliberately in-memory only (not
+# persisted like SESSIONS) -- undo is a "oops, take that back" safety net for
+# the current sitting, not something that should still be offered after a
+# server restart when the on-disk files may have moved on regardless.
+UNDO_STORE = {}
+
 
 @app.route("/")
 def index():
@@ -156,7 +163,14 @@ def api_apply():
     if not folder or not os.path.isdir(folder):
         return jsonify({"error": f"Folder not found: {folder or '(empty)'}"}), 400
 
-    results = agent.apply_actions(folder, actions)
+    results, snapshot = agent.apply_actions(folder, actions)
+
+    # Remember this batch's pre-action state for a one-level "Geri al"
+    # (undo). Overwrites any previous entry for this session -- only the most
+    # recently applied batch can be undone, matching the single "Geri al"
+    # button in the UI (not a full undo stack).
+    if snapshot:
+        UNDO_STORE[session_id] = {"folder": folder, "snapshot": snapshot}
 
     # Record what was actually applied (vs. just proposed) so the model has
     # accurate context on the next message -- otherwise it only remembers
@@ -180,6 +194,31 @@ def api_apply():
             history.append({"role": "assistant", "content": note})
         SESSIONS[session_id] = history[-30:]
         save_sessions()
+
+    return jsonify({"results": results, "undoable": bool(snapshot)})
+
+
+@app.route("/api/undo", methods=["POST"])
+def api_undo():
+    data = request.get_json(force=True)
+    session_id = data.get("session_id", "default")
+
+    entry = UNDO_STORE.get(session_id)
+    if not entry:
+        return jsonify({"error": "Geri alınacak bir işlem yok"}), 400
+
+    results = agent.restore_snapshot(entry["folder"], entry["snapshot"])
+    del UNDO_STORE[session_id]  # single-level undo -- can't undo an undo
+
+    history = SESSIONS.setdefault(session_id, [])
+    summary = "; ".join(f"{r['path']} {'OK' if r['ok'] else 'FAILED'}" for r in results)
+    note = f"(kullanıcı son işlemi geri aldı: {summary})"
+    if history and history[-1]["role"] == "assistant":
+        history[-1]["content"] = (history[-1]["content"] + " " + note).strip()
+    else:
+        history.append({"role": "assistant", "content": note})
+    SESSIONS[session_id] = history[-30:]
+    save_sessions()
 
     return jsonify({"results": results})
 

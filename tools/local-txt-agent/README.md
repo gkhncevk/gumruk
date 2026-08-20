@@ -53,6 +53,15 @@ dosyalar isim/boyutuyla listede görünür, sadece içeriği modele gösterilmez
 
 Hiçbir dosya, senin onayın olmadan değişmez.
 
+Bir uygulamadan pişman olursan, "Seçilenleri uygula" sonrası çıkan **"Geri al"**
+butonuna basarak o işlem grubunu tersine çevirebilirsin — `apply_actions`
+işlemleri gerçekleştirmeden önce, grubun dokunacağı her dosyanın mevcut halini
+(var mıydı, içeriği neydi) otomatik olarak kaydeder (`agent._snapshot`); "Geri
+al" bu kaydı birebir geri yükler (`agent.restore_snapshot`). Sadece **en son**
+uygulanan grup geri alınabilir (tek seviyeli undo) — yeni bir işlem
+uyguladığında bir önceki "Geri al" butonu otomatik olarak devre dışı kalır, o
+artık farklı bir grubu geri alacağı için yanıltıcı olurdu.
+
 ## Kurulum (bir kere yapılır)
 
 1. **Ollama'yı kur** (yerel modeli çalıştıran ücretsiz araç):
@@ -174,7 +183,8 @@ dokunmadan, sadece bir bulgu raporu olarak.
       farklı bir okuma/yazma kod yolu gerektiriyor (paragraf yapısını koruma).
       Ayrı bir adımda ele alınacak, salt "SUPPORTED_EXTENSIONS'a ekle" kadar
       basit değil.
-- "Geri al" düğmesi (son işlemi tersine çevirme)
+- [x] "Geri al" düğmesi (son uygulanan işlem grubunu tersine çevirme --
+      `agent.restore_snapshot`, tek seviyeli)
 - Ücretsiz bulut API'ye (Groq/Gemini) geçiş seçeneği — internetin varken
   daha güçlü bir modelle çalışmak istersen `agent.py` içindeki
   `_ollama_chat` fonksiyonunun yerine geçecek küçük bir alternatif

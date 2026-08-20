@@ -509,9 +509,71 @@ def diff_for_action(folder, action):
     return ""
 
 
+def _touched_paths(action):
+    """Every relative path an action could create, overwrite, or remove --
+    used to snapshot pre-action state before a batch runs, so a later "Geri
+    al" (undo) can restore exactly what was there. Merge deliberately omits
+    its "sources" -- merge only reads them, never modifies them."""
+    atype = action.get("type")
+    if atype in ("rename", "move"):
+        return [action.get("from"), action.get("to")]
+    if atype in ("write", "replace", "delete"):
+        return [action.get("path")]
+    if atype == "merge":
+        return [action.get("into")]
+    if atype == "split":
+        return [p.get("name") for p in action.get("parts", [])]
+    return []
+
+
+def _snapshot(folder, rel):
+    """Capture whether `rel` currently exists and, if so, its full content --
+    the unit of undo state. A path outside `folder` snapshots as "didn't
+    exist"; the action touching it will fail its own safety check anyway, so
+    there's nothing meaningful to restore."""
+    full = os.path.normpath(os.path.join(folder, rel))
+    if not full.startswith(os.path.normpath(folder)):
+        return {"existed": False, "content": None}
+    try:
+        with open(full, "r", errors="replace") as f:
+            return {"existed": True, "content": f.read()}
+    except OSError:
+        return {"existed": False, "content": None}
+
+
+def restore_snapshot(folder, snapshot):
+    """The other half of undo: put every path in `snapshot` back exactly how
+    _snapshot() found it before the batch ran -- write back the captured
+    content if it existed, delete it if it didn't. Mirrors apply_actions'
+    {path, ok, detail} result shape."""
+    results = []
+    for rel, state in snapshot.items():
+        full = os.path.normpath(os.path.join(folder, rel))
+        if not full.startswith(os.path.normpath(folder)):
+            results.append({"path": rel, "ok": False, "detail": "Path escapes target folder"})
+            continue
+        try:
+            if state["existed"]:
+                os.makedirs(os.path.dirname(full), exist_ok=True)
+                with open(full, "w") as f:
+                    f.write(state["content"])
+                results.append({"path": rel, "ok": True, "detail": "restored"})
+            elif os.path.exists(full):
+                os.remove(full)
+                results.append({"path": rel, "ok": True, "detail": "removed (was newly created)"})
+            else:
+                results.append({"path": rel, "ok": True, "detail": "already absent"})
+        except OSError as e:
+            results.append({"path": rel, "ok": False, "detail": str(e)})
+    return results
+
+
 def apply_actions(folder, actions):
-    """Execute a list of approved actions against `folder`. Returns a list
-    of {action, ok, detail} results. Paths are always resolved relative to
+    """Execute a list of approved actions against `folder`. Returns
+    (results, snapshot): `results` is a list of {action, ok, detail};
+    `snapshot` is a {path: {existed, content}} dict capturing every touched
+    path's state *before* this batch ran, ready to hand to restore_snapshot()
+    for a one-level "Geri al" (undo). Paths are always resolved relative to
     `folder` and cannot escape it."""
 
     def safe_path(rel):
@@ -530,6 +592,17 @@ def apply_actions(folder, actions):
                 f"Desteklenmeyen dosya türü: {rel} (sadece {', '.join(WRITABLE_EXTENSIONS)} destekleniyor)"
             )
         return safe_path(rel)
+
+    # Snapshot every path the whole batch could touch BEFORE executing
+    # anything, so undo reverses back to how things were before the batch
+    # started -- not just before the last action in it. First occurrence
+    # wins per path (a path touched by two actions in the same batch should
+    # still restore to its state before either of them ran).
+    snapshot = {}
+    for action in actions:
+        for rel in _touched_paths(action):
+            if rel and rel not in snapshot:
+                snapshot[rel] = _snapshot(folder, rel)
 
     results = []
     for action in actions:
@@ -581,4 +654,4 @@ def apply_actions(folder, actions):
                 results.append({"action": action, "ok": False, "detail": f"unknown action type: {atype}"})
         except Exception as e:  # noqa: BLE001 - surface any failure to the UI
             results.append({"action": action, "ok": False, "detail": str(e)})
-    return results
+    return results, snapshot

@@ -337,6 +337,43 @@ function actionLabel(a) {
   }
 }
 
+// The server only remembers ONE undo snapshot per session (the most
+// recently applied batch) -- so if an older "Geri al" button were left
+// clickable after a newer apply, clicking it would silently undo the WRONG
+// (newer) batch instead of the one it visually sits next to. Tracking the
+// single currently-valid button here and disabling any earlier one the
+// moment a new one appears keeps the UI honest about what undo will actually
+// do.
+let activeUndoBtn = null;
+
+function addUndoButton(box) {
+  if (activeUndoBtn) {
+    activeUndoBtn.disabled = true;
+    activeUndoBtn.textContent = 'Geri al (eskidi -- daha yeni bir işlem yapıldı)';
+  }
+  const undoBtn = document.createElement('button');
+  undoBtn.className = 'ghost';
+  undoBtn.textContent = 'Geri al';
+  undoBtn.onclick = async () => {
+    undoBtn.disabled = true;
+    const res = await fetch('/api/undo', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ session_id: sessionId })
+    });
+    const data = await res.json();
+    if (data.error) { addMsg('Hata: ' + data.error, 'error'); return; }
+    data.results.forEach(r => {
+      const line = document.createElement('div');
+      line.className = r.ok ? 'result-ok' : 'result-fail';
+      line.textContent = (r.ok ? '✓ ' : '✗ ') + r.path + ' geri alındı' + (r.ok ? '' : ' — ' + r.detail);
+      box.appendChild(line);
+    });
+    activeUndoBtn = null;
+  };
+  box.appendChild(undoBtn);
+  activeUndoBtn = undoBtn;
+}
+
 function addPlan(plan) {
   const box = document.createElement('div');
   box.className = 'plan';
@@ -381,6 +418,7 @@ function addPlan(plan) {
         line.textContent = (r.ok ? '✓ ' : '✗ ') + actionLabel(r.action).replace(/<[^>]+>/g, '') + (r.ok ? '' : ' — ' + r.detail);
         box.appendChild(line);
       });
+      if (data.undoable) addUndoButton(box);
     };
     btnRow.appendChild(applyBtn); btnRow.appendChild(cancelBtn);
     box.appendChild(btnRow);
