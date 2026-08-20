@@ -152,3 +152,86 @@ def test_propose_plan_passes_conversation_history_through(tmp_path, monkeypatch)
     assert messages[1] == history[0]
     assert messages[2] == history[1]
     assert "yeni mesaj" in messages[-1]["content"]
+
+
+# ---------- self-correction loop for "replace" actions ----------
+
+def test_validate_replace_actions_returns_no_failures_for_a_clean_plan(tmp_path):
+    (tmp_path / "f.yml").write_text("a: 1\n")
+    failures = agent._validate_replace_actions(str(tmp_path), [
+        {"type": "replace", "path": "f.yml", "find": "a: 1", "replace": "a: 2"}
+    ])
+    assert failures == []
+
+
+def test_validate_replace_actions_catches_ambiguous_find(tmp_path):
+    (tmp_path / "f.yml").write_text("a: 1\nb: 1\n")
+    failures = agent._validate_replace_actions(str(tmp_path), [
+        {"type": "replace", "path": "f.yml", "find": "1", "replace": "2"}
+    ])
+    assert len(failures) == 1
+    assert "birden fazla" in failures[0][1]
+
+
+def test_validate_replace_actions_ignores_non_replace_actions(tmp_path):
+    failures = agent._validate_replace_actions(str(tmp_path), [
+        {"type": "write", "path": "new.txt", "content": "hi"}
+    ])
+    assert failures == []
+
+
+def test_propose_plan_retries_once_when_replace_is_ambiguous_then_succeeds(tmp_path, monkeypatch):
+    (tmp_path / "f.yml").write_text("a: 1\nb: 1\n")
+
+    responses = [
+        # First attempt: ambiguous "find" (matches both lines).
+        '{"reply": "degistiriyorum", "actions": [{"type": "replace", "path": "f.yml", "find": "1", "replace": "2"}]}',
+        # Second attempt (after seeing the error): a corrected, unique find.
+        '{"reply": "duzelttim", "actions": [{"type": "replace", "path": "f.yml", "find": "a: 1", "replace": "a: 2"}]}',
+    ]
+    calls = {"n": 0}
+
+    def fake_chat(messages, model):
+        raw = responses[calls["n"]]
+        calls["n"] += 1
+        return raw
+
+    monkeypatch.setattr(agent, "_ollama_chat", fake_chat)
+    plan = agent.propose_plan(str(tmp_path), "a'yi degistir", [])
+
+    assert calls["n"] == 2  # one retry actually happened
+    assert plan["_retries"] == 1
+    assert plan["actions"][0]["find"] == "a: 1"  # the corrected version made it through
+
+
+def test_propose_plan_gives_up_after_max_retries_and_still_returns_a_plan(tmp_path, monkeypatch):
+    (tmp_path / "f.yml").write_text("a: 1\nb: 1\n")
+    # Every attempt is ambiguous -- the model never fixes it.
+    bad_response = '{"reply": "degistiriyorum", "actions": [{"type": "replace", "path": "f.yml", "find": "1", "replace": "2"}]}'
+    calls = {"n": 0}
+
+    def fake_chat(messages, model):
+        calls["n"] += 1
+        return bad_response
+
+    monkeypatch.setattr(agent, "_ollama_chat", fake_chat)
+    plan = agent.propose_plan(str(tmp_path), "a'yi degistir", [])
+
+    # 1 initial attempt + MAX_REPLACE_RETRIES retries, no more, no infinite loop.
+    assert calls["n"] == 1 + agent.MAX_REPLACE_RETRIES
+    assert plan["_retries"] == agent.MAX_REPLACE_RETRIES
+    assert plan["actions"]  # still returns whatever it last got, for the UI's ⚠️ warning to catch
+
+
+def test_propose_plan_does_not_retry_when_there_are_no_replace_actions(tmp_path, monkeypatch):
+    calls = {"n": 0}
+
+    def fake_chat(messages, model):
+        calls["n"] += 1
+        return '{"reply": "ok", "actions": [{"type": "write", "path": "new.txt", "content": "hi"}]}'
+
+    monkeypatch.setattr(agent, "_ollama_chat", fake_chat)
+    plan = agent.propose_plan(str(tmp_path), "yeni dosya olustur", [])
+
+    assert calls["n"] == 1  # no wasted retry round trip
+    assert plan["_retries"] == 0

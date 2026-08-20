@@ -288,7 +288,7 @@ function addMsg(text, cls) {
 // The safety design (fair round-robin sampling, size limits) only means
 // anything if it's visible -- otherwise it's just an invisible implementation
 // detail nobody can sanity-check against what the agent actually said.
-function addScanCaption(scan) {
+function addScanCaption(scan, retries) {
   const div = document.createElement('div');
   div.className = 'msg agent';
   div.style.cssText = 'font-size:12px;color:var(--muted);padding:2px 12px;margin-top:-6px';
@@ -296,6 +296,11 @@ function addScanCaption(scan) {
   if (scan.editable) parts.push(`${scan.editable} düzenlenebilir`);
   if (scan.read_only) parts.push(`${scan.read_only} salt-okunur`);
   if (scan.skipped) parts.push(`${scan.skipped} çok büyük diye atlandı`);
+  // The self-correction loop (agent.py's propose_plan) validates "replace"
+  // actions against the real file before ever showing them -- surfacing how
+  // many retries that took makes that otherwise-invisible step visible,
+  // the same reasoning as the rest of this caption.
+  if (retries) parts.push(`🔄 kendi kendini ${retries} kez düzeltti`);
   div.textContent = parts.join(' · ');
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -494,7 +499,7 @@ async function send() {
     thinking.remove();
     if (data.error) { addMsg('Hata: ' + data.error, 'error'); return; }
     addMsg(data.reply || '(boş yanıt)', 'agent');
-    if (data._scan) addScanCaption(data._scan);
+    if (data._scan) addScanCaption(data._scan, data._retries);
     if (data.actions && data.actions.length) addPlan(data);
   } catch (e) {
     thinking.remove();

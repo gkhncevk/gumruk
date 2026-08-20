@@ -30,6 +30,17 @@ gözlemlendi (bkz. aşağıdaki not). `replace`, `find` metni dosyada birebir ve
 **tam olarak bir kez** eşleşmezse (hiç yoksa ya da birden fazla yerde
 geçiyorsa) işlemi reddeder — belirsiz bir eşleşmeyi asla tahmin etmez.
 
+Bir `replace` önerisi gerçek dosyada bu şekilde başarısız olacaksa, agent bunu
+sana göstermeden **önce kendi kendine fark eder**: plan üretilir üretilmez,
+her `replace` eylemi arka planda gerçek dosyaya karşı sessizce denenir
+(`agent._validate_replace_actions` — hiçbir şey yazılmaz, sadece kontrol
+edilir). Başarısızsa, model tam hata mesajıyla birlikte tekrar denenir (en
+fazla 1 kez — `MAX_REPLACE_RETRIES`, gecikmeyi sınırlı tutmak için). Böylece
+çoğu zaman "belirsiz eşleşme" hatasını hiç görmezsin bile — agent kendi
+hatasını kendi düzeltmiş olur. Bunun kaç kez gerektiği (varsa) sohbette
+"🔄 kendi kendini N kez düzeltti" olarak görünür; hâlâ başarısızsa
+yukarıdaki ⚠️ uyarısıyla sana gösterilir.
+
 Başka bir dosya türüne (`.pdf`, `.png` vb.) yazmaya/yeniden adlandırmaya
 çalışan bir işlem önerilse bile, uygulama aşamasında otomatik reddedilir —
 model bir hata yapsa bile bu tür dosyalara asla dokunamaz.
@@ -199,6 +210,13 @@ dokunmadan, sadece bir bulgu raporu olarak.
       basit değil.
 - [x] "Geri al" düğmesi (son uygulanan işlem grubunu tersine çevirme --
       `agent.restore_snapshot`, tek seviyeli)
+- [x] Çok adımlı öz-düzeltme döngüsü — `replace` eylemleri, sana gösterilmeden
+      önce gerçek dosyaya karşı doğrulanıyor; başarısızsa model hatayı görüp
+      bir kez daha deniyor (`propose_plan` içindeki döngü, `MAX_REPLACE_RETRIES=1`)
+- [ ] Gerçek tool-calling tabanlı agentic döngü (model kendi isteğiyle bir
+      dosyayı tam okuyabilsin/arama yapabilsin) — bu daha büyük bir mimari
+      adım, Ollama'nın tool-calling sözleşmesini önce ayrıca doğrulamak
+      gerekiyor
 - Ücretsiz bulut API'ye (Groq/Gemini) geçiş seçeneği — internetin varken
   daha güçlü bir modelle çalışmak istersen `agent.py` içindeki
   `_ollama_chat` fonksiyonunun yerine geçecek küçük bir alternatif

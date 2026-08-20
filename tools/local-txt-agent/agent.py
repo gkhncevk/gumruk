@@ -448,6 +448,44 @@ def list_folder_preview(folder, user_message="", max_files=15, preview_chars=120
     return entries, skipped
 
 
+# Bounds the self-correction loop below to at most one extra Ollama round
+# trip per request. Kept at 1 (not higher) deliberately: this only fires
+# when a "replace" action would actually fail, so most requests (no replace
+# actions, or valid ones) pay nothing extra -- but the worst case should
+# still stay close to a normal request's latency, not balloon into several
+# multiples of it for a demo audience watching the clock.
+MAX_REPLACE_RETRIES = 1
+
+
+def _validate_replace_actions(folder, actions):
+    """Dry-run every "replace" action's find/replace against the REAL file on
+    disk -- no writes, purely a check -- and return [(action, error), ...]
+    for any that would be rejected by apply_actions right now (find not
+    found, or ambiguous). This is what lets propose_plan catch a bad
+    "replace" and ask the model to fix it BEFORE ever showing it to you,
+    instead of you finding out only after clicking "Uygula" (or worse, not
+    noticing the ⚠️ warning)."""
+    failures = []
+    for action in actions:
+        if action.get("type") != "replace":
+            continue
+        path = str(action.get("path", ""))
+        full = os.path.normpath(os.path.join(folder, path))
+        if not full.startswith(os.path.normpath(folder)):
+            continue  # apply_actions will reject this on its own terms
+        try:
+            with open(full, "r", errors="replace") as f:
+                content = f.read()
+        except OSError:
+            failures.append((action, f"'{path}' dosyası bulunamadı"))
+            continue
+        try:
+            compute_replace(content, action.get("find", ""), action.get("replace", ""))
+        except ValueError as e:
+            failures.append((action, str(e)))
+    return failures
+
+
 def propose_plan(folder, user_message, history, model=None):
     model = model or DEFAULT_MODEL
     files, skipped = list_folder_preview(folder, user_message)
@@ -487,16 +525,52 @@ def propose_plan(folder, user_message, history, model=None):
     plan = _extract_json(raw)
     plan.setdefault("reply", "")
     plan.setdefault("actions", [])
+
+    # Self-correction loop: before ever showing a plan to you, dry-run
+    # validate its "replace" actions against the real files (see
+    # _validate_replace_actions). If one would fail, don't just silently
+    # flag it downstream -- give the model the EXACT error and one chance to
+    # fix it itself, the same way you'd tell it "that didn't match, try
+    # again" by hand. This is what turns a one-shot proposal into something
+    # that checks its own work first.
+    retries_used = 0
+    for _ in range(MAX_REPLACE_RETRIES):
+        failures = _validate_replace_actions(folder, plan["actions"])
+        if not failures:
+            break
+        retries_used += 1
+        feedback = "\n".join(
+            f'- path="{a.get("path")}", find={a.get("find")!r}: {err}' for a, err in failures
+        )
+        messages.append({"role": "assistant", "content": raw})
+        messages.append({
+            "role": "user",
+            "content": (
+                "Şu 'replace' eylem(ler)i gerçek dosyada denendiğinde başarısız oldu:\n"
+                f"{feedback}\n\n"
+                "Lütfen SADECE bu eylem(ler)in \"find\" alanını düzelt (dosyada tam olarak bir "
+                "kez eşleşecek şekilde -- gerekirse bir komşu satır ekleyerek benzersiz yap, "
+                "olmayan bir önek/karakter EKLEME) ve tüm planı (reply + actions) yeniden, aynı "
+                "JSON şemasında ver."
+            ),
+        })
+        raw = _ollama_chat(messages, model)
+        plan = _extract_json(raw)
+        plan.setdefault("reply", "")
+        plan.setdefault("actions", [])
+
     # Scan stats for the UI's "what did it actually look at" caption -- makes
     # the folder-preview budgeting (round-robin fairness, size skipping) that
     # this tool relies on for safety visible to whoever's watching, instead
-    # of an invisible implementation detail.
+    # of an invisible implementation detail. _retries makes the self-correction
+    # loop above visible too, for the same reason.
     plan["_scan"] = {
         "seen": len(files),
         "editable": sum(1 for e in files if e["editable"]),
         "read_only": sum(1 for e in files if not e["editable"]),
         "skipped": len(skipped),
     }
+    plan["_retries"] = retries_used
     return plan
 
 
