@@ -6,8 +6,41 @@ network, and no model downloaded.
 """
 
 import pytest
+import requests
 
 import agent
+
+
+# ---------- _ollama_chat: friendly error messages ----------
+# requests' own exceptions read like a stack trace (ConnectionError's str()
+# drags in urllib3's retry internals) -- these confirm the translation to one
+# clear Turkish sentence actually happens, not just that *some* error occurs.
+
+def test_ollama_chat_connection_error_message_mentions_ollama_serve(monkeypatch):
+    def raise_connection_error(*a, **k):
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr(requests, "post", raise_connection_error)
+    with pytest.raises(RuntimeError, match="ollama serve"):
+        agent._ollama_chat([], "llama3.2:3b")
+
+
+def test_ollama_chat_timeout_message_is_friendly(monkeypatch):
+    def raise_timeout(*a, **k):
+        raise requests.exceptions.Timeout("boom")
+
+    monkeypatch.setattr(requests, "post", raise_timeout)
+    with pytest.raises(RuntimeError, match="saniye içinde yanıt vermedi"):
+        agent._ollama_chat([], "llama3.2:3b")
+
+
+def test_ollama_chat_missing_model_message_suggests_pull(monkeypatch):
+    class FakeResp:
+        status_code = 404
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: FakeResp())
+    with pytest.raises(RuntimeError, match="ollama pull llama3.2:3b"):
+        agent._ollama_chat([], "llama3.2:3b")
 
 
 # ---------- _extract_json ----------
@@ -33,7 +66,18 @@ def test_extract_json_raises_on_non_json():
 def test_propose_plan_fills_in_missing_reply_and_actions(tmp_path, monkeypatch):
     monkeypatch.setattr(agent, "_ollama_chat", lambda messages, model: "{}")
     plan = agent.propose_plan(str(tmp_path), "merhaba", [])
-    assert plan == {"reply": "", "actions": []}
+    assert plan["reply"] == ""
+    assert plan["actions"] == []
+
+
+def test_propose_plan_reports_scan_stats(tmp_path, monkeypatch):
+    (tmp_path / "notes.txt").write_text("editable")
+    (tmp_path / "server.py").write_text("read-only")
+    monkeypatch.setattr(agent, "_ollama_chat", lambda messages, model: "{}")
+
+    plan = agent.propose_plan(str(tmp_path), "merhaba", [])
+
+    assert plan["_scan"] == {"seen": 2, "editable": 1, "read_only": 1, "skipped": 0}
 
 
 def test_propose_plan_marks_context_only_files_as_read_only_in_the_prompt(tmp_path, monkeypatch):

@@ -243,21 +243,42 @@ OLLAMA_NUM_PREDICT = 1024  # replies are meant to be short (see SYSTEM_PROMPT);
 
 
 def _ollama_chat(messages, model):
-    resp = requests.post(
-        OLLAMA_URL,
-        json={
-            "model": model,
-            "messages": messages,
-            "stream": False,
-            "format": "json",
-            "options": {
-                "temperature": 0.2,
-                "num_ctx": OLLAMA_NUM_CTX,
-                "num_predict": OLLAMA_NUM_PREDICT,
+    # requests' default exceptions for "Ollama isn't running" and "the model
+    # took too long" are technically accurate but read like a stack trace
+    # (ConnectionError's str() includes the internal urllib3 retry machinery)
+    # -- translating them into one clear Turkish sentence each is what turns
+    # "the app broke" into "here's exactly what to do" for whoever's watching
+    # the screen, not just whoever wrote the code.
+    try:
+        resp = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "format": "json",
+                "options": {
+                    "temperature": 0.2,
+                    "num_ctx": OLLAMA_NUM_CTX,
+                    "num_predict": OLLAMA_NUM_PREDICT,
+                },
             },
-        },
-        timeout=OLLAMA_TIMEOUT_SECONDS,
-    )
+            timeout=OLLAMA_TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.ConnectionError:
+        raise RuntimeError(
+            "Ollama'ya bağlanılamadı. Terminalde 'ollama serve' çalışıyor mu kontrol et."
+        )
+    except requests.exceptions.Timeout:
+        raise RuntimeError(
+            f"Model {OLLAMA_TIMEOUT_SECONDS} saniye içinde yanıt vermedi -- büyük bir klasör/model "
+            "seçili olabilir, ya da bilgisayar başka bir işle meşgul. Daha küçük bir alt klasör "
+            "seçmeyi ya da tekrar denemeyi dene."
+        )
+    if resp.status_code == 404:
+        raise RuntimeError(
+            f"'{model}' modeli bulunamadı. 'ollama pull {model}' ile indirmen gerekebilir."
+        )
     resp.raise_for_status()
     data = resp.json()
     return data["message"]["content"]
@@ -425,6 +446,16 @@ def propose_plan(folder, user_message, history, model=None):
     plan = _extract_json(raw)
     plan.setdefault("reply", "")
     plan.setdefault("actions", [])
+    # Scan stats for the UI's "what did it actually look at" caption -- makes
+    # the folder-preview budgeting (round-robin fairness, size skipping) that
+    # this tool relies on for safety visible to whoever's watching, instead
+    # of an invisible implementation detail.
+    plan["_scan"] = {
+        "seen": len(files),
+        "editable": sum(1 for e in files if e["editable"]),
+        "read_only": sum(1 for e in files if not e["editable"]),
+        "skipped": len(skipped),
+    }
     return plan
 
 

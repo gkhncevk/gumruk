@@ -282,6 +282,25 @@ function addMsg(text, cls) {
   return div;
 }
 
+// Shows exactly what the model's answer was based on: how many files were
+// in view, how many of those were writable vs. read-only-for-context, and
+// how many matched an allowed extension but got skipped for being too big.
+// The safety design (fair round-robin sampling, size limits) only means
+// anything if it's visible -- otherwise it's just an invisible implementation
+// detail nobody can sanity-check against what the agent actually said.
+function addScanCaption(scan) {
+  const div = document.createElement('div');
+  div.className = 'msg agent';
+  div.style.cssText = 'font-size:12px;color:var(--muted);padding:2px 12px;margin-top:-6px';
+  const parts = [`${scan.seen} dosya görüldü`];
+  if (scan.editable) parts.push(`${scan.editable} düzenlenebilir`);
+  if (scan.read_only) parts.push(`${scan.read_only} salt-okunur`);
+  if (scan.skipped) parts.push(`${scan.skipped} çok büyük diye atlandı`);
+  div.textContent = parts.join(' · ');
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
 function addThinking() {
   const div = document.createElement('div');
   div.className = 'thinking';
@@ -356,11 +375,19 @@ function addUndoButton(box) {
   undoBtn.textContent = 'Geri al';
   undoBtn.onclick = async () => {
     undoBtn.disabled = true;
-    const res = await fetch('/api/undo', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ session_id: sessionId })
-    });
-    const data = await res.json();
+    undoBtn.textContent = 'Geri alınıyor…';
+    let data;
+    try {
+      const res = await fetch('/api/undo', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ session_id: sessionId })
+      });
+      data = await res.json();
+    } catch (e) {
+      addMsg('Bağlantı hatası: ' + e.message, 'error');
+      undoBtn.disabled = false; undoBtn.textContent = 'Geri al';
+      return;
+    }
     if (data.error) { addMsg('Hata: ' + data.error, 'error'); return; }
     data.results.forEach(r => {
       const line = document.createElement('div');
@@ -405,12 +432,22 @@ function addPlan(plan) {
     cancelBtn.onclick = () => { applyBtn.disabled = true; cancelBtn.disabled = true; };
     applyBtn.onclick = async () => {
       applyBtn.disabled = true; cancelBtn.disabled = true;
+      const originalLabel = applyBtn.textContent;
+      applyBtn.textContent = 'Uygulanıyor…';
       const selected = plan.actions.filter((_, i) => checkboxes[i].checked);
-      const res = await fetch('/api/apply', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ folder: folderEl.value, actions: selected, session_id: sessionId })
-      });
-      const data = await res.json();
+      let data;
+      try {
+        const res = await fetch('/api/apply', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ folder: folderEl.value, actions: selected, session_id: sessionId })
+        });
+        data = await res.json();
+      } catch (e) {
+        addMsg('Bağlantı hatası: ' + e.message, 'error');
+        applyBtn.disabled = false; cancelBtn.disabled = false; applyBtn.textContent = originalLabel;
+        return;
+      }
+      applyBtn.textContent = originalLabel;
       if (data.error) { addMsg('Hata: ' + data.error, 'error'); return; }
       data.results.forEach(r => {
         const line = document.createElement('div');
@@ -448,6 +485,7 @@ async function send() {
     thinking.remove();
     if (data.error) { addMsg('Hata: ' + data.error, 'error'); return; }
     addMsg(data.reply || '(boş yanıt)', 'agent');
+    if (data._scan) addScanCaption(data._scan);
     if (data.actions && data.actions.length) addPlan(data);
   } catch (e) {
     thinking.remove();
