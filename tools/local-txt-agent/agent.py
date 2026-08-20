@@ -215,6 +215,26 @@ User instruction: "bu dosyanın özetini çıkarır mısın"
 File content shown to you: "Yarın saat 15:00'te pazarlama ekibiyle toplantı var. Gündem: Q3
 kampanya bütçesi ve yeni reklam görselleri. Katılımcılar: Gökhan, Lara, Esra."
 {"reply": "Yarın 15:00'te pazarlama ekibiyle Q3 bütçesi ve yeni reklamlar için toplantı var; katılımcılar Gökhan, Lara ve Esra.", "actions": []}
+
+Example -- disambiguating "replace" among repeated lines (note: "restart: unless-stopped"
+appears under THREE different services in this file; "find" uses just ONE extra neighboring
+line -- the one right above it that's unique to postgres -- to disambiguate, not the whole
+service block):
+User instruction: "postgres servisinin restart politikasini 'always' yap, digerlerine dokunma"
+File content shown to you (excerpt, inside a <file path="docker-compose.yml"> tag):
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=gumruk
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+{"reply": "Postgres servisinin restart politikasini 'always' yaptim, diger servislere dokunmadim.", "actions": [{"type": "replace", "path": "docker-compose.yml", "find": "      - postgres_data:/var/lib/postgresql/data\\n    restart: unless-stopped", "replace": "      - postgres_data:/var/lib/postgresql/data\\n    restart: always"}]}
+WRONG way to do this same edit: setting "find" to the entire block starting from
+"postgres:\\n    image: postgres:16-alpine\\n    environment:\\n..." down to the restart line.
+That is far more text than needed to be unique, and the more text "find" contains, the more
+likely a small transcription slip (a missed space, a reordered line) makes the whole match
+fail -- prefer the smallest neighboring anchor that makes "find" unique instead.
 """
 
 
