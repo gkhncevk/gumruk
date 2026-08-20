@@ -343,6 +343,38 @@ def _extract_json(text):
 # system prompt and conversation history on top.
 MATCHED_FILE_PREVIEW_CHARS = 4000  # see the comment above the read() call below
 
+# Words this short are too common/noisy to use as a content-match signal
+# (Turkish/English function words, articles, short verbs) -- 4 characters is
+# a blunt but cheap filter that skips most of them without needing an actual
+# stopword list.
+_MIN_KEYWORD_LEN = 4
+
+# How much of each candidate file to peek at when checking whether the
+# user's question mentions something in its content (not just its name).
+# Deliberately much smaller than MATCHED_FILE_PREVIEW_CHARS -- this is a
+# cheap "does this file even look relevant" check across possibly many
+# files, not the actual preview shown to the model.
+CONTENT_MATCH_PEEK_CHARS = 4000
+
+# Above this many candidate files, content-peeking every one of them would
+# mean opening hundreds of files just to rank them -- too slow for what's
+# meant to be an interactive tool. Filename matching still applies either
+# way; this just skips the extra I/O once a folder is large enough that it
+# wouldn't be worth it.
+MAX_FILES_FOR_CONTENT_MATCH = 400
+
+
+def _query_keywords(user_message):
+    """Extract the words from a user question worth grepping file content
+    for -- e.g. "eşik değeriyle ilgili yer neresi" doesn't name any file, but
+    "eşik" showing up inside a file's actual text is a real relevance
+    signal that plain filename matching (see list_folder_preview) misses."""
+    return {
+        word for word in re.findall(r"[a-zA-ZçğıöşüÇĞİÖŞÜ0-9_]+", user_message.lower())
+        if len(word) >= _MIN_KEYWORD_LEN
+    }
+
+
 
 def list_folder_preview(folder, user_message="", max_files=15, preview_chars=1200, max_file_size=MAX_PREVIEW_FILE_SIZE):
     """Build a compact description of the folder's files for the model.
@@ -388,14 +420,56 @@ def list_folder_preview(folder, user_message="", max_files=15, preview_chars=120
             top = rel.split(os.sep, 1)[0] if os.sep in rel else ""
             groups.setdefault(top, []).append(rel)
 
+    # Relevance ranking, strongest signal first (lower tier number = shown
+    # earlier). A rel with no entry here is unmatched (falls after every
+    # ranked tier, plain alphabetical among itself).
+    #   0: the user typed this exact filename (e.g. "risk.py'deki ...")
+    #   1: the file's own name IS a query keyword (e.g. asking about "risk"
+    #      when the file is risk.py) -- a much stronger signal than the word
+    #      merely appearing somewhere inside a big file's text
+    #   2: a query keyword was found in the file's actual content -- the
+    #      weakest tier, ranked internally by how many keywords hit (more
+    #      matches = more likely to be the right file among several)
+    # Without tier 1, a common domain word (e.g. "risk" in a codebase that's
+    # ABOUT risk scoring) matches many files by content alone, and plain
+    # alphabetical tie-breaking can bury the one file actually named after
+    # it (observed: asking about "risk" on the real gumruk repo ranked
+    # feedback.py and README.md ahead of the actual risk.py).
     query = user_message.lower()
-    matched_rels = set()
+    match_rank = {}
+    if query:
+        all_rels = [rel for rels in groups.values() for rel in rels]
+        keywords = _query_keywords(user_message)
+
+        for rel in all_rels:
+            base = os.path.basename(rel)
+            if base.lower() in query:
+                match_rank[rel] = (0, 0)
+            elif os.path.splitext(base)[0].lower() in keywords:
+                match_rank[rel] = (1, 0)
+
+        # Filename matching alone misses an indirect question like "eşik
+        # değeriyle ilgili yer neresi" -- nothing in that sentence names a
+        # file. Peeking at each candidate's actual content for a keyword from
+        # the question catches those too. Bounded to folders small enough
+        # that opening every candidate file is still fast (a big repo just
+        # falls back to filename-only matching rather than eating the I/O).
+        if keywords and len(all_rels) <= MAX_FILES_FOR_CONTENT_MATCH:
+            for rel in all_rels:
+                if rel in match_rank:
+                    continue  # already has a stronger (tier 0/1) signal
+                try:
+                    with open(os.path.join(folder, rel), "r", errors="replace") as f:
+                        peek = f.read(CONTENT_MATCH_PEEK_CHARS).lower()
+                except OSError:
+                    continue
+                count = sum(1 for kw in keywords if re.search(rf"\b{re.escape(kw)}\b", peek))
+                if count:
+                    match_rank[rel] = (2, -count)
+    matched_rels = set(match_rank)
     for rels in groups.values():
         if query:
-            for rel in rels:
-                if os.path.basename(rel).lower() in query:
-                    matched_rels.add(rel)
-            rels.sort(key=lambda rel: (rel not in matched_rels, rel))
+            rels.sort(key=lambda rel: (match_rank.get(rel, (3, 0)), rel))
         else:
             rels.sort()
     group_keys = sorted(groups)

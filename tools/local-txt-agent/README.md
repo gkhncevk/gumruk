@@ -217,6 +217,15 @@ dokunmadan, sadece bir bulgu raporu olarak.
 - [x] Çok adımlı öz-düzeltme döngüsü — `replace` eylemleri, sana gösterilmeden
       önce gerçek dosyaya karşı doğrulanıyor; başarısızsa model hatayı görüp
       bir kez daha deniyor (`propose_plan` içindeki döngü, `MAX_REPLACE_RETRIES=1`)
+- [x] İçerik-farkında dosya eşleştirme — önceden sadece dosya *adı* soruda
+      geçiyorsa öncelik veriliyordu ("eşik değeriyle ilgili yer neresi" gibi
+      dolaylı bir soruda hiçbir dosya adı geçmediği için kaçırılıyordu). Artık
+      soru kelimeleri dosya *içeriğinde* de aranıyor, üç katmanlı bir öncelik
+      sırasıyla (tam dosya adı > dosyanın kendi adı bir anahtar kelime >
+      sadece içerikte geçiyor) — gerçek repo'da test edildi: "risk skorlama
+      hangi dosyada" sorusu artık doğru şekilde `risk.py`'yi öne çıkarıyor
+      (önceden `README.md`/`feedback.py` gibi "risk" kelimesini de içeren ama
+      alakasız dosyalar alfabetik olarak önde çıkıyordu)
 - [ ] Gerçek tool-calling tabanlı agentic döngü (model kendi isteğiyle bir
       dosyayı tam okuyabilsin/arama yapabilsin) — bu daha büyük bir mimari
       adım, Ollama'nın tool-calling sözleşmesini önce ayrıca doğrulamak
