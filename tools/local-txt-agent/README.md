@@ -123,6 +123,20 @@ Sonra tarayıcında **http://localhost:5001** adresini aç.
 5. "Seçilenleri uygula" dediğinde değişiklikler gerçekten diskte yapılır.
 6. "Sohbeti temizle" ekrandaki geçmişi temizler (dosyalarına dokunmaz).
 
+## Testler
+
+```bash
+pip install -r requirements-dev.txt
+pytest -v
+```
+
+Testler Ollama'ya veya bir modele ihtiyaç duymaz (`propose_plan` testlerinde
+`agent._ollama_chat` sahte/mock bir fonksiyonla değiştirilir) — sadece diskle
+konuşan kısımları (`list_folder_preview`, `apply_actions`, `compute_replace`,
+`diff_for_write`/`diff_for_action`, `restore_snapshot`) ve JSON ayrıştırmayı
+kapsar. Kök `.github/workflows/ci.yml`'deki `agent-tests` job'u her push'ta
+bunu otomatik çalıştırır.
+
 ## Gerçek kullanım örneği — gümrük projesinde dokümantasyon kontrolü
 
 Bu agent, `../..` (yani `gumruk/` reposunun kökü) gibi bir klasöre yöneltilip
