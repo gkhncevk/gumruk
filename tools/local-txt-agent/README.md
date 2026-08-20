@@ -182,6 +182,10 @@ dokunmadan, sadece bir bulgu raporu olarak.
 - `agent.py` klasördeki dosyaların bir önizlemesini alır, modele
   (Ollama üzerinden, tamamen yerel) gönderir ve modelden kesin bir JSON
   formatında "plan" ister (`{"reply": ..., "actions": [...]}`).
+- Model, önizleme yetmiyorsa kendi isteğiyle `read_file` aracını çağırıp bir
+  dosyanın tam güncel içeriğini isteyebilir (`agent._propose_plan_raw`) —
+  bu da salt-okunur, hiçbir şeyi değiştirmiyor, sadece modele daha fazla
+  bağlam veriyor.
 - Model asla dosyalara doğrudan dokunmaz — sadece plan önerir.
 - `app.py` bu planı tarayıcıya gösterir; sen onaylayınca `apply_actions`
   fonksiyonu gerçek dosya işlemlerini yapar (yeniden adlandırma, yazma,
@@ -234,10 +238,18 @@ dokunmadan, sadece bir bulgu raporu olarak.
       hangi dosyada" sorusu artık doğru şekilde `risk.py`'yi öne çıkarıyor
       (önceden `README.md`/`feedback.py` gibi "risk" kelimesini de içeren ama
       alakasız dosyalar alfabetik olarak önde çıkıyordu)
-- [ ] Gerçek tool-calling tabanlı agentic döngü (model kendi isteğiyle bir
-      dosyayı tam okuyabilsin/arama yapabilsin) — bu daha büyük bir mimari
-      adım, Ollama'nın tool-calling sözleşmesini önce ayrıca doğrulamak
-      gerekiyor
+- [x] Gerçek tool-calling tabanlı agentic döngü — model artık `read_file`
+      aracıyla, önizlemede gösterilenin ötesinde, bir dosyanın **tam** güncel
+      içeriğini kendi isteğiyle okuyabiliyor (`agent._propose_plan_raw`,
+      `MAX_TOOL_ROUNDS=3`'e kadar). En çok işe yaradığı yer: bir `replace`
+      eylemi için `find` metnini kurmadan önce, önizlemede kırpılmış ya da
+      emin olunmayan bir satırın tam halini görmek. Ollama, tool-calling
+      desteklemeyen bir modelde bu alanı sessizce yok sayıyor (resmi
+      dokümantasyonda belirtiliyor) — yani desteklenmeyen bir modelle bile
+      istek bozulmuyor, sadece aracı kullanmıyor. **Not:** bu, bugün eklenen
+      özellikler arasında tarafımca gerçek Ollama'ya karşı canlı test
+      edilemeyen tek özellik (sadece mock'lu testlerle doğrulandı) — ilk
+      kullanımlarında dikkatli izle.
 - Ücretsiz bulut API'ye (Groq/Gemini) geçiş seçeneği — internetin varken
   daha güçlü bir modelle çalışmak istersen `agent.py` içindeki
   `_ollama_chat` fonksiyonunun yerine geçecek küçük bir alternatif

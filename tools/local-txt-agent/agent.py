@@ -123,6 +123,13 @@ SYSTEM_PROMPT = (
     "line, as shown to you, actually starts with it -- a config file can have some lines that are "
     "YAML/JSON list items (starting with \"- \") right next to plain \"key: value\" lines that are "
     "NOT list items, and confusing the two is a real, previously observed failure mode.\n\n"
+    "If a \"read_file\" tool is offered to you, use it whenever the preview you were shown might "
+    "not be enough -- most importantly, before building a \"replace\" action's \"find\" field for "
+    "a file whose relevant part you're not fully certain about (the preview may be truncated, or "
+    "you may just want to double check the exact current text before proposing an edit to it), or "
+    "to see the real content of a file that was shown to you as skipped=\"true\" (too large to "
+    "preview). Reading a file this way does not create or change anything -- it's purely "
+    "information for you, same as the file previews you were already given.\n\n"
 ) + """A file that was too large to preview appears instead as
 <file path="..." skipped="true" size_bytes="N" /> (no content). You will be given a user
 instruction in Turkish or English. Respond with STRICT JSON only, no prose outside the JSON,
@@ -272,29 +279,20 @@ OLLAMA_NUM_PREDICT = 1024  # replies are meant to be short (see SYSTEM_PROMPT);
 # question that should've been a one-line JSON reply).
 
 
-def _ollama_chat(messages, model):
-    # requests' default exceptions for "Ollama isn't running" and "the model
-    # took too long" are technically accurate but read like a stack trace
-    # (ConnectionError's str() includes the internal urllib3 retry machinery)
-    # -- translating them into one clear Turkish sentence each is what turns
-    # "the app broke" into "here's exactly what to do" for whoever's watching
-    # the screen, not just whoever wrote the code.
+def _ollama_post(payload):
+    """Shared error-translated POST to Ollama's /api/chat -- returns the
+    response's "message" dict (which may hold "content", "tool_calls", or
+    both). Used by both _ollama_chat (plain JSON-forced replies) and the
+    tool-calling loop below (which also needs to see "tool_calls").
+
+    requests' default exceptions for "Ollama isn't running" and "the model
+    took too long" are technically accurate but read like a stack trace
+    (ConnectionError's str() includes the internal urllib3 retry machinery)
+    -- translating them into one clear Turkish sentence each is what turns
+    "the app broke" into "here's exactly what to do" for whoever's watching
+    the screen, not just whoever wrote the code."""
     try:
-        resp = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": model,
-                "messages": messages,
-                "stream": False,
-                "format": "json",
-                "options": {
-                    "temperature": 0.2,
-                    "num_ctx": OLLAMA_NUM_CTX,
-                    "num_predict": OLLAMA_NUM_PREDICT,
-                },
-            },
-            timeout=OLLAMA_TIMEOUT_SECONDS,
-        )
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT_SECONDS)
     except requests.exceptions.ConnectionError:
         raise RuntimeError(
             "Ollama'ya bağlanılamadı. Terminalde 'ollama serve' çalışıyor mu kontrol et."
@@ -306,12 +304,138 @@ def _ollama_chat(messages, model):
             "seçmeyi ya da tekrar denemeyi dene."
         )
     if resp.status_code == 404:
+        model = payload.get("model", "?")
         raise RuntimeError(
             f"'{model}' modeli bulunamadı. 'ollama pull {model}' ile indirmen gerekebilir."
         )
     resp.raise_for_status()
-    data = resp.json()
-    return data["message"]["content"]
+    return resp.json()["message"]
+
+
+def _ollama_chat(messages, model):
+    message = _ollama_post({
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "format": "json",
+        "options": {
+            "temperature": 0.2,
+            "num_ctx": OLLAMA_NUM_CTX,
+            "num_predict": OLLAMA_NUM_PREDICT,
+        },
+    })
+    return message["content"]
+
+
+# The one tool the model may call itself, mid-plan, instead of being limited
+# to whatever list_folder_preview() already staged in the prompt. Kept to a
+# single, narrow, read-only capability on purpose: this is the first use of
+# Ollama's tool-calling in this codebase, and a model without tool support
+# is documented to simply ignore an unrecognized "tools" field and answer
+# normally -- so the blast radius of getting this wrong is "the model
+# doesn't use it," not "the request breaks."
+READ_FILE_MAX_CHARS = 20_000
+
+READ_FILE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "read_file",
+        "description": (
+            "Read a file's FULL current content, not just the truncated preview you were "
+            "shown in the folder listing. Use this before proposing a precise 'replace' "
+            "action if you are not fully certain of a line's exact text, or to see a file "
+            "that was listed as skipped for being too large to preview."
+        ),
+        "parameters": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "File path relative to the folder root, exactly as shown in the folder listing (e.g. \"ai-service/app/risk.py\").",
+                }
+            },
+        },
+    },
+}
+
+
+def _read_file_tool(folder, path):
+    """Execute a model-requested read_file(path) call. Read-only, and never
+    raises -- any problem becomes a short Turkish string the model sees as
+    the tool's result, since this gets fed straight back into the
+    conversation rather than surfaced as an HTTP error."""
+    if not isinstance(path, str) or not path:
+        return "Hata: geçerli bir 'path' verilmedi."
+    full = os.path.normpath(os.path.join(folder, path))
+    if not full.startswith(os.path.normpath(folder)):
+        return f"Hata: '{path}' klasör dışına çıkıyor, okunamaz."
+    if not path.lower().endswith(WRITABLE_EXTENSIONS + CONTEXT_ONLY_EXTENSIONS):
+        return f"Hata: '{path}' desteklenen bir dosya türü değil."
+    try:
+        with open(full, "r", errors="replace") as f:
+            content = f.read(READ_FILE_MAX_CHARS + 1)
+    except OSError as e:
+        return f"Hata: '{path}' okunamadı ({e})."
+    if len(content) > READ_FILE_MAX_CHARS:
+        content = content[:READ_FILE_MAX_CHARS] + "\n... [kırpıldı, dosya daha uzun]"
+    return content
+
+
+def _run_tool_call(folder, tool_call):
+    """Execute one model-requested tool call and return its string result.
+    Unknown tool names (a model hallucinating a tool that doesn't exist)
+    become an explanatory result string rather than a crash -- the model
+    gets to see the mistake and try something else."""
+    fn = (tool_call or {}).get("function", {})
+    name = fn.get("name")
+    args = fn.get("arguments") or {}
+    if name == "read_file":
+        return _read_file_tool(folder, args.get("path", ""))
+    return f"Hata: bilinmeyen araç '{name}'."
+
+
+# Bounds how many read_file() round trips a single plan request can spend --
+# without a cap, a model that keeps asking for "just one more file" could
+# turn a normal request into an unbounded number of Ollama calls.
+MAX_TOOL_ROUNDS = 3
+
+
+def _propose_plan_raw(folder, messages, model):
+    """Get the model's final raw content for a plan, letting it call
+    read_file() up to MAX_TOOL_ROUNDS times first if it asks to. Returns a
+    plain string, the same contract _ollama_chat had -- callers don't need
+    to know whether any tool calls happened.
+
+    Deliberately does NOT set format="json" while tools are in play: forcing
+    strict JSON output on a turn that's expected to produce a tool call
+    instead risks fighting the model rather than letting it call the tool.
+    The final answer (once it stops requesting tools) still goes through
+    the same _extract_json used everywhere else, which already tolerates
+    stray formatting -- and the system prompt still spells out the required
+    JSON shape regardless of the "format" field."""
+    for _ in range(MAX_TOOL_ROUNDS):
+        message = _ollama_post({
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "tools": [READ_FILE_TOOL],
+            "options": {
+                "temperature": 0.2,
+                "num_ctx": OLLAMA_NUM_CTX,
+                "num_predict": OLLAMA_NUM_PREDICT,
+            },
+        })
+        tool_calls = message.get("tool_calls")
+        if not tool_calls:
+            return message.get("content", "")
+        messages.append({"role": "assistant", "content": message.get("content", ""), "tool_calls": tool_calls})
+        for tc in tool_calls:
+            messages.append({"role": "tool", "content": _run_tool_call(folder, tc)})
+    # Ran out of tool rounds without a final answer -- ask one more time
+    # WITHOUT tools (format="json" forced) so the model is forced to commit
+    # to an actual plan instead of being offered another round to loop on.
+    return _ollama_chat(messages, model)
 
 
 def list_ollama_models():
@@ -595,7 +719,7 @@ def propose_plan(folder, user_message, history, model=None):
         }
     )
 
-    raw = _ollama_chat(messages, model)
+    raw = _propose_plan_raw(folder, messages, model)
     plan = _extract_json(raw)
     plan.setdefault("reply", "")
     plan.setdefault("actions", [])

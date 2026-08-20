@@ -3,7 +3,8 @@ talks to (plan/apply/undo/history/browse). agent.py's own file-touching
 logic is already covered by test_actions.py/test_folder_preview.py -- these
 tests check that app.py wires HTTP requests to it correctly (status codes,
 error shapes, session bookkeeping), with Ollama always mocked out via
-agent._ollama_chat -- no network, no local model required.
+agent._ollama_post (the shared low-level POST both the plain and
+tool-calling paths funnel through) -- no network, no local model required.
 """
 
 import json
@@ -42,7 +43,7 @@ def test_plan_rejects_empty_message(client, tmp_path):
 
 
 def test_plan_success_records_conversation_history(client, tmp_path, monkeypatch):
-    monkeypatch.setattr(agent, "_ollama_chat", lambda messages, model: '{"reply": "merhaba", "actions": []}')
+    monkeypatch.setattr(agent, "_ollama_post", lambda payload: {"content": '{"reply": "merhaba", "actions": []}'})
     res = client.post("/api/plan", json={"folder": str(tmp_path), "message": "selam", "session_id": "s1"})
 
     assert res.status_code == 200
@@ -54,10 +55,10 @@ def test_plan_success_records_conversation_history(client, tmp_path, monkeypatch
 
 
 def test_plan_surfaces_ollama_errors_as_500_with_friendly_message(client, tmp_path, monkeypatch):
-    def raise_error(messages, model):
+    def raise_error(payload):
         raise RuntimeError("Ollama'ya bağlanılamadı. Terminalde 'ollama serve' çalışıyor mu kontrol et.")
 
-    monkeypatch.setattr(agent, "_ollama_chat", raise_error)
+    monkeypatch.setattr(agent, "_ollama_post", raise_error)
     res = client.post("/api/plan", json={"folder": str(tmp_path), "message": "selam"})
 
     assert res.status_code == 500
@@ -66,10 +67,10 @@ def test_plan_surfaces_ollama_errors_as_500_with_friendly_message(client, tmp_pa
 
 def test_plan_flags_ambiguous_replace_on_config_file_instead_of_hiding_it(client, tmp_path, monkeypatch):
     (tmp_path / "f.yml").write_text("a: 1\nb: 1\n")
-    monkeypatch.setattr(agent, "_ollama_chat", lambda messages, model: json.dumps({
+    monkeypatch.setattr(agent, "_ollama_post", lambda payload: {"content": json.dumps({
         "reply": "değiştiriyorum",
         "actions": [{"type": "replace", "path": "f.yml", "find": "1", "replace": "2"}],
-    }))
+    })})
     res = client.post("/api/plan", json={"folder": str(tmp_path), "message": "degistir"})
 
     action = res.get_json()["actions"][0]
@@ -82,10 +83,10 @@ def test_plan_shows_a_diff_for_txt_writes_too_not_just_config(client, tmp_path, 
     # overwrite is no safer to eyeball as a raw content dump than a config
     # file is, so this should get the same treatment.
     (tmp_path / "notes.txt").write_text("eski içerik")
-    monkeypatch.setattr(agent, "_ollama_chat", lambda messages, model: json.dumps({
+    monkeypatch.setattr(agent, "_ollama_post", lambda payload: {"content": json.dumps({
         "reply": "güncelliyorum",
         "actions": [{"type": "write", "path": "notes.txt", "content": "yeni içerik"}],
-    }))
+    })})
     res = client.post("/api/plan", json={"folder": str(tmp_path), "message": "güncelle"})
 
     action = res.get_json()["actions"][0]
@@ -194,7 +195,7 @@ def test_apply_rejects_missing_folder(client):
 # ---------- /api/history ----------
 
 def test_history_clear_empties_the_session(client, tmp_path, monkeypatch):
-    monkeypatch.setattr(agent, "_ollama_chat", lambda messages, model: '{"reply": "ok", "actions": []}')
+    monkeypatch.setattr(agent, "_ollama_post", lambda payload: {"content": '{"reply": "ok", "actions": []}'})
     client.post("/api/plan", json={"folder": str(tmp_path), "message": "hi", "session_id": "s1"})
     assert app_module.SESSIONS.get("s1")
 
