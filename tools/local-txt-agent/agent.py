@@ -109,14 +109,24 @@ SYSTEM_PROMPT = (
     "execute anything yourself -- you only PROPOSE a plan, and a human approves it (after "
     "seeing exactly what would change) before anything happens.\n\n"
     f"You may also be shown {', '.join(CONTEXT_ONLY_EXTENSIONS)} files from the same folder, "
-    "marked as [READ-ONLY, for context] in the folder listing. These give you background (e.g. "
+    "wrapped in a <file path=\"...\" readonly=\"true\"> tag. These give you background (e.g. "
     "actual code/config a .md file is supposed to describe) but you can NEVER propose an action "
     "that writes, renames, moves, or deletes one of them -- only use them to inform what you say "
     "in \"reply\" or to inform an action on a SUPPORTED file (e.g. \"the README says the threshold "
     "is 0.15 but risk.py has 0.30\" is a reply, not a write to risk.py).\n\n"
-) + """You will be given the current contents of a folder (filenames and a short preview of \
-each file's text) and a user instruction in Turkish or English. Respond with STRICT JSON \
-only, no prose outside the JSON, matching this shape:
+    "Every file's content is shown to you as REAL, exactly-formatted text between its "
+    "<file path=\"...\"> and </file> tags -- the same indentation, the same line breaks, the same "
+    "characters as the actual file on disk. When you need to copy text out of a file verbatim "
+    "(most importantly: a \"replace\" action's \"find\" field), copy it EXACTLY as it appears "
+    "between those tags -- same leading whitespace, same punctuation, nothing added or removed. "
+    "Do not add a \"- \" list-item prefix (or any other prefix/formatting) to a line unless that "
+    "line, as shown to you, actually starts with it -- a config file can have some lines that are "
+    "YAML/JSON list items (starting with \"- \") right next to plain \"key: value\" lines that are "
+    "NOT list items, and confusing the two is a real, previously observed failure mode.\n\n"
+) + """A file that was too large to preview appears instead as
+<file path="..." skipped="true" size_bytes="N" /> (no content). You will be given a user
+instruction in Turkish or English. Respond with STRICT JSON only, no prose outside the JSON,
+matching this shape:
 
 {
   "reply": "<short natural-language explanation of what you're proposing, in the same language as the user>",
@@ -190,7 +200,7 @@ Rules:
   that is actually shorter/condensed -- never just the original text copied unchanged, that is
   not a summary).
 - Keep "reply" short -- a couple of sentences, not a report.
-- Files marked [READ-ONLY, for context] (e.g. .py files) may be read and referenced in "reply",
+- Files shown with readonly="true" (e.g. .py files) may be read and referenced in "reply",
   but NEVER appear as the "from"/"path"/"into"/"source" of an action -- if the user's instruction
   would require writing to one of them, explain in "reply" why you can't and propose no action
   for that file (you may still propose actions on other, editable files in the same request).
@@ -422,14 +432,25 @@ def propose_plan(folder, user_message, history, model=None):
     model = model or DEFAULT_MODEL
     files, skipped = list_folder_preview(folder, user_message)
 
+    # Each file's real content, with real line breaks -- NOT Python repr()
+    # (the previous format: f"{preview!r}"). repr() renders a multi-line file
+    # as one escaped single-line string ('services:\n  postgres:\n    ...'),
+    # which is much harder for a model to copy verbatim than natural text:
+    # every line looks visually identical (just more characters between \n's)
+    # instead of being an actual line with its own real indentation. This is
+    # the likely root cause of a repeatedly observed bug: a model asked to
+    # build a "replace" action's exact "find" text for a YAML line kept
+    # inventing a "- " list-item prefix that wasn't in the real file --
+    # plausible if it was reconstructing the line from an escaped blob rather
+    # than reading it as formatted text.
     lines = []
     for e in files:
-        tag = "" if e["editable"] else " [READ-ONLY, for context]"
-        lines.append(f"- {e['path']}{tag}: {e['preview']!r}")
+        readonly = ' readonly="true"' if not e["editable"] else ""
+        lines.append(f'<file path="{e["path"]}"{readonly}>\n{e["preview"]}\n</file>')
     for rel, size in skipped:
-        lines.append(f"- {rel}: [skipped, {size:,} bytes -- too large to preview in full]")
+        lines.append(f'<file path="{rel}" skipped="true" size_bytes="{size}" />')
 
-    folder_summary = "\n".join(lines) or (
+    folder_summary = "\n\n".join(lines) or (
         f"(folder is empty or has no {'/'.join(WRITABLE_EXTENSIONS + CONTEXT_ONLY_EXTENSIONS)} files yet)"
     )
 

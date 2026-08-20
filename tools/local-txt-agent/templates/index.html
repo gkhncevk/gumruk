@@ -346,9 +346,18 @@ function actionLabel(a) {
     case 'write':
       if (a.diff) return `içeriği güncelle: ${escapeHtml(a.path)} — değişiklik (diff):` + diffPreview(a.diff);
       return `içeriği güncelle: ${escapeHtml(a.path)} — yeni içerik önizlemesi:` + contentPreview(a.content, 600);
-    case 'replace':
-      if (a.diff) return `hedefli değişiklik: ${escapeHtml(a.path)} — değişiklik (diff):` + diffPreview(a.diff);
-      return `hedefli değişiklik: ${escapeHtml(a.path)} — "${escapeHtml(a.find)}" yerine "${escapeHtml(a.replace)}"`;
+    case 'replace': {
+      const base = `hedefli değişiklik: ${escapeHtml(a.path)}`;
+      if (a.diff) return `${base} — değişiklik (diff):` + diffPreview(a.diff);
+      const preview = `${base} — "${escapeHtml(a.find)}" yerine "${escapeHtml(a.replace)}"`;
+      if (a.diff_unavailable) {
+        return preview + '<div style="margin-top:4px;padding:6px 10px;background:#3a2a12;' +
+          'border:1px solid #a35a1a;border-radius:8px;font-size:12px;color:#f0b878">' +
+          '⚠️ Bu metin dosyada şu an bulunamadı veya birden fazla yerde geçiyor -- uygulanırsa ' +
+          'muhtemelen reddedilecek.</div>';
+      }
+      return preview;
+    }
     case 'merge': return `birleştir: ${(a.sources||[]).map(escapeHtml).join(', ')} → ${escapeHtml(a.into)}`;
     case 'split': return `böl: ${escapeHtml(a.source)} → ${(a.parts||[]).map(p=>escapeHtml(p.name)).join(', ')}`;
     case 'delete': return `sil: ${escapeHtml(a.path)}`;

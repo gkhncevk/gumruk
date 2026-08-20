@@ -94,8 +94,46 @@ def test_propose_plan_marks_context_only_files_as_read_only_in_the_prompt(tmp_pa
     agent.propose_plan(str(tmp_path), "dosyaları listele", [])
 
     user_content = captured["messages"][-1]["content"]
-    assert "notes.txt:" in user_content
-    assert "server.py [READ-ONLY, for context]" in user_content
+    assert '<file path="notes.txt">' in user_content
+    assert '<file path="server.py" readonly="true">' in user_content
+    # The actual point of this format: file content appears as real,
+    # unescaped text (a real newline), not Python repr()'s '...\n...'.
+    assert "\neditable\n" in user_content
+    assert "\\n" not in user_content
+
+
+def test_propose_plan_shows_yaml_content_with_real_indentation_not_escaped(tmp_path, monkeypatch):
+    # Regression test for an observed bug: with the old repr()-based preview
+    # format, a model asked to build a "replace" action's "find" text for
+    # the plain "restart: unless-stopped" line kept inventing a "- " list-item
+    # prefix that isn't actually there (docker-compose.yml has real "- " list
+    # items nearby, e.g. under "ports:"/"volumes:", but "restart:" itself is
+    # a plain key -- not a list item). The theory: an escaped single-line
+    # blob makes every line look the same, so the model can't tell list items
+    # from plain keys by their real formatting. This asserts the prompt now
+    # preserves the file's exact original text -- byte for byte -- so that
+    # theory can actually hold.
+    yaml_content = (
+        "services:\n"
+        "  postgres:\n"
+        "    ports:\n"
+        '      - "5432:5432"\n'
+        "    restart: unless-stopped\n"
+    )
+    (tmp_path / "docker-compose.yml").write_text(yaml_content)
+
+    captured = {}
+
+    def fake_chat(messages, model):
+        captured["messages"] = messages
+        return '{"reply": "ok", "actions": []}'
+
+    monkeypatch.setattr(agent, "_ollama_chat", fake_chat)
+    agent.propose_plan(str(tmp_path), "restart politikasini degistir", [])
+
+    user_content = captured["messages"][-1]["content"]
+    assert yaml_content in user_content  # exact original bytes, not repr()'d
+    assert "    restart: unless-stopped" in user_content  # real indentation, no invented "- " prefix
 
 
 def test_propose_plan_passes_conversation_history_through(tmp_path, monkeypatch):

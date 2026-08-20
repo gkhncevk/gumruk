@@ -88,10 +88,19 @@ def api_plan():
     # the line you meant).
     for action in plan.get("actions", []):
         path = str(action.get("path", ""))
-        if action.get("type") in ("write", "replace") and path.lower().endswith(agent.CONFIG_WRITABLE_EXTENSIONS):
+        atype = action.get("type")
+        if atype in ("write", "replace") and path.lower().endswith(agent.CONFIG_WRITABLE_EXTENSIONS):
             diff = agent.diff_for_action(folder, action)
             if diff:
                 action["diff"] = diff
+            elif atype == "replace":
+                # A "replace" on a config file with no diff almost always
+                # means "find" won't actually match this file right now (not
+                # found, or ambiguous) -- apply_actions will reject it for
+                # the same reason. Flagging this explicitly beats silently
+                # falling back to a plain find/replace text preview, which
+                # looks identical to "this will definitely work."
+                action["diff_unavailable"] = True
 
     history.append({"role": "user", "content": message})
     history.append({"role": "assistant", "content": plan.get("reply", "")})
